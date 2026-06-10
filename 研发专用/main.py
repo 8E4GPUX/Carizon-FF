@@ -14,6 +14,7 @@ from PyQt5.QtCore import Qt
 
 from utils.logger import LoggerManager
 from ui.main_window import MainWindow
+from monitor_window import MonitorWindow
 
 
 def main():
@@ -32,6 +33,10 @@ def main():
     # 启动主窗口
     window = MainWindow()
     window.show()
+
+    # 启动监控窗口
+    monitor = MonitorWindow()
+    monitor.show()
 
     sys.exit(app.exec_())
 
