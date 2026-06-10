@@ -342,7 +342,7 @@ class MonitorWindow(QMainWindow):
         }
         tag_fmt = QTextCharFormat()
         tag_fmt.setForeground(tag_colors.get(tag, QColor(200, 200, 200)))
-        tag_fmt.setBold(True)
+        tag_fmt.setFontWeight(QFont.Bold)
         cursor.insertText(f"{tag} ", tag_fmt)
 
         # 消息
