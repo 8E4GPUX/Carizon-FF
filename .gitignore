@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+
+# 日志文件
+logs/
+*.log
+
+# 加密配置（密钥和加密文件不提交）
+config/.config_key
+config/deploy_config.enc
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# 系统
+Thumbs.db
+.DS_Store
