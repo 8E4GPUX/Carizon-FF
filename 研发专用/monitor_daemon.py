@@ -9,10 +9,10 @@ BASELINE_FILE = r"c:\Users\8E4GPUX\.qwen\projects\c-------demo\memory\product_la
 
 
 def get_latest_commit():
-    """获取产品专用目录的最新提交哈希"""
+    """获取产品专用目录和docs目录的最新提交哈希"""
     try:
         result = subprocess.run(
-            ["git", "log", "--oneline", "-1", "--", "产品专用/"],
+            ["git", "log", "--oneline", "-1", "--", "产品专用/", "docs/"],
             cwd=GIT_DIR,
             capture_output=True, text=True, timeout=10,
         )
@@ -64,7 +64,7 @@ if hasattr(sys, 'stdout') and sys.stdout:
 print("=" * 60)
 print("[产品需求监控] 已启动")
 print("[检测间隔] 3 分钟")
-print("[监控目录] 产品专用/")
+print("[监控范围] 产品专用/ + docs/")
 print("[Git 仓库] %s" % GIT_DIR)
 print("=" * 60)
 
