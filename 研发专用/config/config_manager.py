@@ -230,6 +230,57 @@ class ConfigManager:
         """获取 IP 映射表（用于界面展示）"""
         return load_ip_mapping()
 
+    def validate_config(self) -> tuple:
+        """验证配置项
+
+        Returns:
+            (is_valid, error_messages)
+        """
+        errors = []
+
+        # 验证 IP 格式
+        industrial_ip = self.get("工控机_IP", "")
+        if industrial_ip and not self._validate_ip(industrial_ip):
+            errors.append("工控机 IP 格式错误")
+
+        board_ip = self.get("板端_IP", "")
+        if board_ip and not self._validate_ip(board_ip):
+            errors.append("板端 IP 格式错误")
+
+        # 验证路径格式
+        ota_dir = self.get("板端_OTA目录", "/ota")
+        if ota_dir and not ota_dir.startswith("/"):
+            errors.append("板端 OTA 目录必须以 / 开头")
+
+        app_dir = self.get("板端_APP目录", "/app")
+        if app_dir and not app_dir.startswith("/"):
+            errors.append("板端 APP 目录必须以 / 开头")
+
+        temp_dir = self.get("工控机_临时目录", "/tmp/ota_deploy")
+        if temp_dir and not temp_dir.startswith("/"):
+            errors.append("工控机临时目录必须以 / 开头")
+
+        # 验证数值范围
+        ssh_timeout = self.get("SSH_超时", 8)
+        if not isinstance(ssh_timeout, (int, float)) or ssh_timeout < 1 or ssh_timeout > 120:
+            errors.append("SSH 超时时间必须在 1~120 秒之间")
+
+        ssh_retry = self.get("SSH_重试次数", 3)
+        if not isinstance(ssh_retry, int) or ssh_retry < 0 or ssh_retry > 20:
+            errors.append("SSH 重试次数必须在 0~20 之间")
+
+        return len(errors) == 0, errors
+
+    @staticmethod
+    def _validate_ip(ip: str) -> bool:
+        """验证 IP 地址格式"""
+        import re
+        pattern = r'^(\d{1,3}\.){3}\d{1,3}$'
+        if not re.match(pattern, ip):
+            return False
+        parts = ip.split('.')
+        return all(0 <= int(part) <= 255 for part in parts)
+
     @property
     def config_path(self) -> str:
         return self._config_path

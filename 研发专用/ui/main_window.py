@@ -717,6 +717,19 @@ class MainWindow(QMainWindow):
             self._pkg_table.setItem(i, 3, tmi)
 
     def _clear_files(self):
+        """清空文件列表（带确认）"""
+        if not self._selected_files:
+            return
+
+        reply = QMessageBox.question(
+            self, "确认清空",
+            f"确定要清空 {len(self._selected_files)} 个已选文件吗？",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No
+        )
+        if reply != QMessageBox.Yes:
+            return
+
         self._selected_files = []
         self._pkg_infos = []
         self._file_list.clear()

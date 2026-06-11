@@ -4,6 +4,7 @@ SSH/SFTP 客户端模块
 """
 import os
 import time
+import socket
 import paramiko
 from utils.logger import get_logger
 
@@ -13,10 +14,39 @@ logger = get_logger()
 ERROR_KEYWORDS = []
 
 
+# ========== SSH 异常类 ==========
+
+class SSHConnectionError(Exception):
+    """SSH 连接错误基类"""
+    pass
+
+
+class SSHTimeoutError(SSHConnectionError):
+    """连接超时"""
+    def __init__(self, hostname, timeout):
+        self.message = f"连接 {hostname} 超时（{timeout}秒），请检查网络连通性"
+        super().__init__(self.message)
+
+
+class SSHAuthError(SSHConnectionError):
+    """认证失败"""
+    def __init__(self, hostname, username):
+        self.message = f"用户 {username}@{hostname} 认证失败，请检查密码或密钥文件"
+        super().__init__(self.message)
+
+
+class SSHHostUnreachableError(SSHConnectionError):
+    """主机不可达"""
+    def __init__(self, hostname):
+        self.message = f"主机 {hostname} 不可达，请检查网络连接和 IP 地址"
+        super().__init__(self.message)
+
+
 def set_error_keywords(keywords: list):
     """设置错误关键词列表"""
     global ERROR_KEYWORDS
-    ERROR_KEYWORDS = keywords
+    ERROR_KEYWORDS.clear()
+    ERROR_KEYWORDS.extend(keywords)
 
 
 class SSHClient:
@@ -37,6 +67,7 @@ class SSHClient:
 
     def connect(self) -> bool:
         """建立 SSH 连接（带重试，支持密码和密钥认证）"""
+        last_error = None
         for attempt in range(1, self.max_retry + 1):
             try:
                 self._client = paramiko.SSHClient()
@@ -62,13 +93,53 @@ class SSHClient:
                 self._client.connect(**connect_kwargs)
                 logger.info(f"SSH 连接成功: {self.username}@{self.hostname}:{self.port}")
                 return True
+            except paramiko.AuthenticationException:
+                last_error = SSHAuthError(self.hostname, self.username)
+                logger.warning(f"SSH 认证失败 (尝试 {attempt}/{self.max_retry}): {last_error.message}")
+                if self._client:
+                    self._client.close()
+                    self._client = None
+                if attempt < self.max_retry:
+                    time.sleep(2)
+            except paramiko.SSHException as e:
+                msg = str(e)
+                if "timeout" in msg.lower() or "timed out" in msg.lower():
+                    last_error = SSHTimeoutError(self.hostname, self.timeout)
+                else:
+                    last_error = SSHConnectionError(f"SSH 异常: {msg}")
+                logger.warning(f"SSH 连接异常 (尝试 {attempt}/{self.max_retry}): {last_error.message}")
+                if self._client:
+                    self._client.close()
+                    self._client = None
+                if attempt < self.max_retry:
+                    time.sleep(2)
+            except socket.timeout:
+                last_error = SSHTimeoutError(self.hostname, self.timeout)
+                logger.warning(f"SSH 连接超时 (尝试 {attempt}/{self.max_retry}): {last_error.message}")
+                if self._client:
+                    self._client.close()
+                    self._client = None
+                if attempt < self.max_retry:
+                    time.sleep(2)
+            except OSError as e:
+                last_error = SSHHostUnreachableError(self.hostname)
+                logger.warning(f"SSH 主机不可达 (尝试 {attempt}/{self.max_retry}): {e}")
+                if self._client:
+                    self._client.close()
+                    self._client = None
+                if attempt < self.max_retry:
+                    time.sleep(2)
             except Exception as e:
+                last_error = SSHConnectionError(f"未知连接错误: {e}")
                 logger.warning(f"SSH 连接失败 (尝试 {attempt}/{self.max_retry}): {e}")
                 if self._client:
                     self._client.close()
                     self._client = None
                 if attempt < self.max_retry:
                     time.sleep(2)
+
+        # 所有重试均失败
+        logger.error(f"SSH 连接最终失败: {last_error.message if last_error else '未知错误'}")
         return False
 
     def disconnect(self):

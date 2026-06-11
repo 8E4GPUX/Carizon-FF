@@ -41,9 +41,9 @@ class LoggerManager:
         self._logger.setLevel(logging.DEBUG)
         self._logger.handlers.clear()
 
-        # 文件处理器 - 按大小轮转，最大 10MB，保留 5 个备份
+        # 文件处理器 - 按大小轮转，最大 10MB，保留 10 个备份
         file_handler = RotatingFileHandler(
-            log_file, maxBytes=10 * 1024 * 1024, backupCount=5, encoding="utf-8"
+            log_file, maxBytes=10 * 1024 * 1024, backupCount=10, encoding="utf-8"
         )
         file_handler.setLevel(logging.DEBUG)
         file_fmt = logging.Formatter(

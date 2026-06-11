@@ -233,7 +233,7 @@ class SettingsDialog(QDialog):
             )
 
     def _save_config(self):
-        """保存配置"""
+        """保存配置（先验证再保存）"""
         self._config.set("工控机_IP", self._industrial_ip.text().strip())
         self._config.set("工控机_密码", self._industrial_pwd.text().strip())
         self._config.set("板端_IP", self._board_ip.text().strip())
@@ -245,6 +245,16 @@ class SettingsDialog(QDialog):
         self._config.set("重启_离线等待", self._offline_wait.value())
         self._config.set("重启_在线等待", self._online_wait.value())
         self._config.set("额外预留空间_KB", self._extra_space.value())
+
+        # 保存前验证配置
+        is_valid, errors = self._config.validate_config()
+        if not is_valid:
+            error_msg = "\n".join(f"• {e}" for e in errors)
+            QMessageBox.warning(
+                self, "配置验证失败",
+                f"以下配置项存在问题，请修正后再保存：\n\n{error_msg}"
+            )
+            return
 
         try:
             self._config.save()
