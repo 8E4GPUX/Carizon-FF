@@ -11,7 +11,8 @@ from PyQt5.QtWidgets import (
     QLineEdit, QLabel, QProgressBar, QMessageBox, QGroupBox,
     QTextEdit, QFrame, QListWidgetItem,
     QApplication, QTableWidget, QTableWidgetItem,
-    QHeaderView, QComboBox, QGraphicsDropShadowEffect, QSizePolicy
+    QHeaderView, QComboBox, QGraphicsDropShadowEffect, QSizePolicy,
+    QSplitter
 )
 from PyQt5.QtCore import Qt, QTimer, QUrl, pyqtSignal, pyqtSlot, QObject, QThread, QMetaObject, Q_ARG
 from PyQt5.QtGui import (
@@ -262,14 +263,31 @@ class MainWindow(QMainWindow):
         info_row = self._create_info_row()
         main_layout.addLayout(info_row)
 
-        # ====== 主内容区（左40% 右60%） ======
-        content = QHBoxLayout()
-        content.setSpacing(10)
+        # ====== 主内容区（QSplitter 可拖拽） ======
+        splitter = QSplitter(Qt.Horizontal)
+        splitter.setHandleWidth(6)
+        splitter.setChildrenCollapsible(False)
+        splitter.setStyleSheet("""
+            QSplitter::handle {
+                background-color: #e0e0e0;
+                border-radius: 3px;
+                margin: 4px 0;
+            }
+            QSplitter::handle:hover {
+                background-color: #2196F3;
+            }
+            QSplitter::handle:pressed {
+                background-color: #1976D2;
+            }
+        """)
         left = self._create_left_panel()
-        content.addWidget(left, 40)
         right = self._create_right_panel()
-        content.addWidget(right, 60)
-        main_layout.addLayout(content, 1)
+        left.setMinimumWidth(300)
+        right.setMinimumWidth(400)
+        splitter.addWidget(left)
+        splitter.addWidget(right)
+        splitter.setSizes([480, 720])
+        main_layout.addWidget(splitter, 1)
 
         # ====== 底部操作栏 ======
         bottom = self._create_bottom_bar()
@@ -357,17 +375,21 @@ class MainWindow(QMainWindow):
         layout.setSpacing(8)
 
         # ---- 升级包选择 ----
-        fg = QGroupBox("📁 升级包选择")
+        fg = QFrame()
         fg.setStyleSheet("""
-            QGroupBox {
-                font-size: 14px; color: #1565C0; font-weight: bold;
-                padding-top: 18px;
+            QFrame {
+                background-color: white;
+                border: 1px solid #e4e4e4;
+                border-radius: 6px;
             }
-            QGroupBox::title { color: #1565C0; }
         """)
         fl = QVBoxLayout(fg)
         fl.setSpacing(6)
-        fl.setContentsMargins(10, 18, 10, 8)
+        fl.setContentsMargins(10, 10, 10, 8)
+
+        title1 = QLabel("📁 升级包选择")
+        title1.setStyleSheet("font-size: 14px; color: #1565C0; font-weight: bold; border: none; padding-bottom: 4px;")
+        fl.addWidget(title1)
 
         btn_row = QHBoxLayout()
         btn_row.setSpacing(6)
@@ -422,17 +444,21 @@ class MainWindow(QMainWindow):
         layout.addWidget(fg, 2)
 
         # ---- 部署进度 ----
-        pg = QGroupBox("📊 部署进度")
+        pg = QFrame()
         pg.setStyleSheet("""
-            QGroupBox {
-                font-size: 14px; color: #E65100; font-weight: bold;
-                padding-top: 18px;
+            QFrame {
+                background-color: white;
+                border: 1px solid #e4e4e4;
+                border-radius: 6px;
             }
-            QGroupBox::title { color: #E65100; }
         """)
         pl = QVBoxLayout(pg)
         pl.setSpacing(6)
-        pl.setContentsMargins(10, 18, 10, 8)
+        pl.setContentsMargins(10, 10, 10, 8)
+
+        title2 = QLabel("📊 部署进度")
+        title2.setStyleSheet("font-size: 14px; color: #E65100; font-weight: bold; border: none; padding-bottom: 4px;")
+        pl.addWidget(title2)
 
         pbar = QHBoxLayout()
         self._progress_bar = QProgressBar()
@@ -453,9 +479,9 @@ class MainWindow(QMainWindow):
         self._pkg_table.setHorizontalHeaderLabels(["包名", "类型", "状态", "耗时"])
         self._pkg_table.horizontalHeader().setStretchLastSection(True)
         self._pkg_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
-        self._pkg_table.setColumnWidth(1, 65)
+        self._pkg_table.setColumnWidth(1, 130)
         self._pkg_table.setColumnWidth(2, 80)
-        self._pkg_table.setColumnWidth(3, 65)
+        self._pkg_table.setColumnWidth(3, 80)
         self._pkg_table.verticalHeader().setVisible(False)
         self._pkg_table.setSelectionMode(QAbstractItemView.NoSelection)
         self._pkg_table.setStyleSheet("""
@@ -475,17 +501,21 @@ class MainWindow(QMainWindow):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
-        lg = QGroupBox("📝 实时日志")
+        lg = QFrame()
         lg.setStyleSheet("""
-            QGroupBox {
-                font-size: 14px; color: #1a1a2e; font-weight: bold;
-                padding-top: 18px;
+            QFrame {
+                background-color: white;
+                border: 1px solid #e4e4e4;
+                border-radius: 6px;
             }
-            QGroupBox::title { color: #1a1a2e; }
         """)
         ll = QVBoxLayout(lg)
         ll.setSpacing(6)
-        ll.setContentsMargins(10, 18, 10, 8)
+        ll.setContentsMargins(10, 10, 10, 8)
+
+        title3 = QLabel("📝 实时日志")
+        title3.setStyleSheet("font-size: 14px; color: #1a1a2e; font-weight: bold; border: none; padding-bottom: 4px;")
+        ll.addWidget(title3)
 
         # 工具栏
         tb = QHBoxLayout()
@@ -700,7 +730,7 @@ class MainWindow(QMainWindow):
             ni.setFlags(Qt.ItemIsEnabled)
             self._pkg_table.setItem(i, 0, ni)
 
-            ti = QTableWidgetItem(info.pkg_type.upper())
+            ti = QTableWidgetItem(info.target_dir if info.target_dir and info.target_dir != "unknown" else info.pkg_type.upper())
             ti.setFlags(Qt.ItemIsEnabled)
             ti.setTextAlignment(Qt.AlignCenter)
             self._pkg_table.setItem(i, 1, ti)
