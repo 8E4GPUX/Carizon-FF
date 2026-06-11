@@ -168,29 +168,11 @@ tag_fmt.setFontWeight(QFont.Bold)  # ✅ 使用 setFontWeight 方法
 | BUG-002 | 🔴 P0 | ✅ 已修复 | main.py Qtl 拼写错误 | main.py:13 | Qtl → Qt | v2.0 |
 | BUG-001 | 🔴 P0 | ✅ 已修复 | 导入路径使用中文 | 所有模块 | 改为相对导入 | v2.0 |
 
-### BUG-006 详细说明（待修复）
+### BUG-006 详细说明（已解决）
 
-**文件**：`研发专用/monitor_window.py`  
-**行号**：345  
-**错误类型**：AttributeError  
-**错误信息**：`'QTextCharFormat' object has no attribute 'setBold'`
-
-**错误代码**：
-```python
-# ❌ 错误：QTextCharFormat 没有 setBold 方法
-tag_fmt.setBold(True)
-```
-
-**修复代码**：
-```python
-# ✅ 正确：使用 setFontWeight 方法
-from PyQt5.QtGui import QFont
-tag_fmt.setFontWeight(QFont.Bold)
-```
-
-**影响**：监控窗口无法启动，导致整个程序崩溃  
-**修复难度**：⭐ 简单（1 行代码）  
-**预计工时**：10 分钟
+**解决方式**：移除监控窗口功能（提交 ae307db）  
+**原因**：监控窗口功能非核心需求，且存在技术实现问题，决定移除该功能  
+**影响**：程序不再包含产品需求监控窗口，主程序可正常启动
 
 ---
 
