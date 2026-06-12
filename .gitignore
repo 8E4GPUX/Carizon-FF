@@ -3,19 +3,11 @@ __pycache__/
 *.pyc
 *.pyo
 *.egg-info/
-dist/
-build/
-*.spec
 
 # 虚拟环境
 venv_build/
 venv/
 .env/
-
-# 编译产物
-*.exe
-*.dll
-*.pyd
 
 # IDE
 .vscode/
