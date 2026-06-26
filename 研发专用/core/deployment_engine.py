@@ -211,10 +211,16 @@ class DeploymentEngine:
             self._update_status(DeployStatus.FAILED, message="连接工控机失败")
             return
 
-        # Step 3: 连接板端（通过工控机跳转）
+        # Step 3: 连接板端（通过工控机 SSH 隧道跳转）
         self._update_status(DeployStatus.CHECKING, DeployStep.CONNECT_BOARD,
-                            "连接板端...")
-        self._board_client = self._create_board_client()
+                            "连接板端（通过工控机隧道）...")
+        board_sock = self._create_board_tunnel()
+        if board_sock is None:
+            self._industrial_client.disconnect()
+            self._update_status(DeployStatus.FAILED, message="创建板端 SSH 隧道失败")
+            return
+
+        self._board_client = self._create_board_client(sock=board_sock)
         if not self._board_client.connect():
             self._industrial_client.disconnect()
             self._update_status(DeployStatus.FAILED, message="连接板端失败")
@@ -441,13 +447,43 @@ class DeploymentEngine:
             retry=self._config.get("SSH_重试次数", 3),
         )
 
-    def _create_board_client(self) -> SSHClient:
-        """创建板端 SSH 客户端（从配置读取用户名/密码/密钥）"""
+    def _create_board_client(self, sock=None) -> SSHClient:
+        """创建板端 SSH 客户端（从配置读取用户名/密码/密钥）
+
+        Args:
+            sock: 跳板机隧道 socket，通过工控机连接板端
+        """
         return SSHClient(
             hostname=self._config.get("板端_IP", ""),
-            username=self._config.get("板端_用户名", "user"),
+            username=self._config.get("板端_用户名", "root"),
             password=self._config.get("板端_密码", ""),
             key_file=self._config.get("板端_密钥文件", ""),
             timeout=self._config.get("SSH_超时", 8),
             retry=self._config.get("SSH_重试次数", 3),
+            sock=sock,
         )
+
+    def _create_board_tunnel(self) -> object:
+        """通过工控机创建到板端的 SSH 隧道
+
+        Returns:
+            paramiko Channel（作为 sock 传入板端 SSHClient），失败返回 None
+        """
+        try:
+            transport = self._industrial_client._client.get_transport()
+            if transport is None or not transport.is_active():
+                logger.error("工控机传输通道不可用，无法创建板端隧道")
+                return None
+
+            board_ip = self._config.get("板端_IP", "")
+            board_port = 22
+            channel = transport.open_channel(
+                "direct-tcpip",
+                (board_ip, board_port),
+                ("", 0),
+            )
+            logger.info(f"已通过工控机创建到 {board_ip}:{board_port} 的 SSH 隧道")
+            return channel
+        except Exception as e:
+            logger.error(f"创建板端 SSH 隧道失败: {e}")
+            return None

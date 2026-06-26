@@ -28,7 +28,7 @@ class TestConfigManager:
         cm = ConfigManager()
         assert cm.get("SSH_超时") == 8
         assert cm.get("SSH_重试次数") == 3
-        assert cm.get("板端_用户名") == "user"
+        assert cm.get("板端_用户名") == "root"
         # 板端_密码 和 板端_密钥文件 可能为 None（旧配置）或 ""（新配置）
         pwd = cm.get("板端_密码")
         assert pwd is None or pwd == ""

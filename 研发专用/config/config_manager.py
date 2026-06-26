@@ -55,10 +55,10 @@ def _decrypt_data(encrypted_data: bytes, key: bytes) -> dict:
 
 DEFAULT_CONFIG = {
     "工控机_IP": "",
-    "工控机_用户名": "root",
+    "工控机_用户名": "user",
     "工控机_密码": "Carizon!@#2025",
     "板端_IP": "",
-    "板端_用户名": "user",
+    "板端_用户名": "root",
     "板端_密码": "",
     "板端_密钥文件": "",
     "板端_OTA目录": "/ota",

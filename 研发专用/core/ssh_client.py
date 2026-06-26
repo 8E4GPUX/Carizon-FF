@@ -54,7 +54,7 @@ class SSHClient:
 
     def __init__(self, hostname: str, username: str, password: str = None,
                  port: int = 22, timeout: int = 8, retry: int = 3,
-                 key_file: str = None):
+                 key_file: str = None, sock=None):
         self.hostname = hostname
         self.username = username
         self.password = password
@@ -62,6 +62,7 @@ class SSHClient:
         self.timeout = timeout
         self.max_retry = retry
         self.key_file = key_file
+        self._sock = sock  # 跳板机隧道 socket（通过工控机连接板端）
         self._client = None
         self._sftp = None
 
@@ -80,6 +81,10 @@ class SSHClient:
                     "timeout": self.timeout,
                     "compress": True,
                 }
+
+                # 跳板机隧道（通过工控机连接板端）
+                if self._sock is not None:
+                    connect_kwargs["sock"] = self._sock
 
                 # 优先使用密钥认证
                 if self.key_file and os.path.exists(self.key_file):
