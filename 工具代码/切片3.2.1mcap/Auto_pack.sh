@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # 版本号 - 用于客户端校验
-SCRIPT_VERSION="3.2.4"
+SCRIPT_VERSION="3.2.5"
 echo "SCRIPT_VERSION:$SCRIPT_VERSION"
 
 # 初始化全局变量

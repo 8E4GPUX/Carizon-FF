@@ -18,3 +18,14 @@ venv/
 # 系统
 Thumbs.db
 .DS_Store
+
+# PyInstaller 构建产物
+build/
+dist/
+
+# 编译好的可执行文件（单独分发）
+切分工具/*.exe
+
+# 日志
+logs/
+*.log
