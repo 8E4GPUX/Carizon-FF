@@ -1,6 +1,6 @@
 """
 主窗口模块
-CARIZON-模块部署工具 v2.0 — 工业级 UI 优化版
+CARIZON-模块部署工具 v2.0 — 网易云音乐风格 UI
 """
 import os
 import sys
@@ -32,9 +32,34 @@ logger = get_logger()
 
 
 # ============================================================
+# 网易云风格配色常量
+# ============================================================
+class NeteaseColors:
+    BG_DARK = "#f5f5f5"          # 主背景 - 浅灰
+    BG_CARD = "#ffffff"          # 卡片背景 - 白色
+    BG_CARD_HOVER = "#f0f0f0"   # 卡片悬停
+    BG_INPUT = "#fafafa"         # 输入框背景
+    RED_PRIMARY = "#C20C0C"      # 网易云红 - 主色
+    RED_LIGHT = "#E74C3C"        # 红色 - 亮色
+    RED_DIM = "#8B0000"          # 暗红
+    TEXT_PRIMARY = "#333333"     # 主文字 - 深灰
+    TEXT_SECONDARY = "#666666"   # 次要文字
+    TEXT_MUTED = "#999999"       # 弱化文字
+    BORDER = "#e0e0e0"          # 边框 - 浅灰
+    BORDER_LIGHT = "#eeeeee"    # 浅边框
+    SUCCESS = "#4CAF50"          # 成功绿
+    WARNING = "#FF9800"          # 警告橙
+    ERROR = "#F44336"            # 错误红
+    INFO = "#42A5F5"             # 信息蓝
+    PROGRESS_BG = "#e8e8e8"      # 进度条背景
+    SCROLLBAR = "#d0d0d0"        # 滚动条
+    SCROLLBAR_HOVER = "#b0b0b0"  # 滚动条悬停
+
+
+# ============================================================
 # 工具函数
 # ============================================================
-def add_shadow(widget, blur=10, offset=1, color=QColor(0, 0, 0, 25)):
+def add_shadow(widget, blur=12, offset=2, color=QColor(0, 0, 0, 60)):
     s = QGraphicsDropShadowEffect()
     s.setBlurRadius(blur)
     s.setOffset(offset, offset)
@@ -42,34 +67,74 @@ def add_shadow(widget, blur=10, offset=1, color=QColor(0, 0, 0, 25)):
     widget.setGraphicsEffect(s)
 
 
+def make_card_style(border_left: str = None) -> str:
+    """生成网易云风格卡片样式"""
+    base = f"""
+        background-color: {NeteaseColors.BG_CARD};
+        border: 1px solid {NeteaseColors.BORDER};
+        border-radius: 8px;
+    """
+    if border_left:
+        base += f"""
+        border-left: 3px solid {border_left};
+        """
+    return base
+
+
+def make_btn_style(bg: str, text_color: str = "#ffffff", hover: str = None) -> str:
+    h = hover or bg
+    return f"""
+        QPushButton {{
+            background-color: {bg}; color: {text_color};
+            border: none; border-radius: 6px;
+            font-weight: bold; font-size: 13px;
+            padding: 7px 20px;
+        }}
+        QPushButton:hover {{
+            background-color: {h};
+        }}
+        QPushButton:pressed {{
+            background-color: {h};
+            padding-top: 8px;
+        }}
+        QPushButton:disabled {{
+            background-color: {NeteaseColors.BORDER};
+            color: {NeteaseColors.TEXT_MUTED};
+        }}
+    """
+
+
 # ============================================================
-# 迷你状态标签
+# 迷你状态标签（网易云风格）
 # ============================================================
 class MiniStatusCard(QFrame):
-    def __init__(self, title: str, value: str, color: str = "#2196F3",
-                 title_size: int = 12, value_size: int = 14, parent=None):
+    def __init__(self, title: str, value: str, color: str = NeteaseColors.RED_PRIMARY,
+                 title_size: int = 11, value_size: int = 15, parent=None):
         super().__init__(parent)
         self._color = color
-        self.setFixedHeight(40)
-        self.setMinimumWidth(140)
+        self.setFixedHeight(46)
+        self.setMinimumWidth(120)
         self.setStyleSheet(f"""
             MiniStatusCard {{
-                background-color: white;
-                border: 1px solid #e0e0e0;
-                border-radius: 6px;
-                border-left: 3px solid {color};
+                {make_card_style(color)}
             }}
         """)
+        add_shadow(self, blur=8, offset=1, color=QColor(0, 0, 0, 40))
+
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(10, 2, 10, 2)
-        layout.setSpacing(6)
+        layout.setContentsMargins(12, 2, 12, 2)
+        layout.setSpacing(8)
 
         self._title_lbl = QLabel(title)
-        self._title_lbl.setStyleSheet(f"font-size: {title_size}px; color: #888; font-weight: 500; border: none;")
+        self._title_lbl.setStyleSheet(
+            f"font-size: {title_size}px; color: {NeteaseColors.TEXT_SECONDARY}; "
+            f"font-weight: 400; border: none; background: transparent;")
         layout.addWidget(self._title_lbl)
 
         self._value_lbl = QLabel(value)
-        self._value_lbl.setStyleSheet(f"font-size: {value_size}px; color: {color}; font-weight: bold; border: none;")
+        self._value_lbl.setStyleSheet(
+            f"font-size: {value_size}px; color: {color}; "
+            f"font-weight: bold; border: none; background: transparent;")
         layout.addWidget(self._value_lbl)
 
         layout.addStretch()
@@ -78,27 +143,15 @@ class MiniStatusCard(QFrame):
         self._value_lbl.setText(value)
         if color:
             self._color = color
-            self._value_lbl.setStyleSheet(f"font-size: 14px; color: {color}; font-weight: bold; border: none;")
-            self.setStyleSheet(f"""
-                MiniStatusCard {{
-                    background-color: white;
-                    border: 1px solid #e0e0e0;
-                    border-radius: 6px;
-                    border-left: 3px solid {color};
-                }}
-            """)
+            self._value_lbl.setStyleSheet(
+                f"font-size: 15px; color: {color}; font-weight: bold; border: none; background: transparent;")
+            self.setStyleSheet(f"MiniStatusCard {{ {make_card_style(color)} }}")
 
     def set_color(self, color: str):
         self._color = color
-        self._value_lbl.setStyleSheet(f"font-size: 14px; color: {color}; font-weight: bold; border: none;")
-        self.setStyleSheet(f"""
-            MiniStatusCard {{
-                background-color: white;
-                border: 1px solid #e0e0e0;
-                border-radius: 6px;
-                border-left: 3px solid {color};
-            }}
-        """)
+        self._value_lbl.setStyleSheet(
+            f"font-size: 15px; color: {color}; font-weight: bold; border: none; background: transparent;")
+        self.setStyleSheet(f"MiniStatusCard {{ {make_card_style(color)} }}")
 
 
 # ============================================================
@@ -144,18 +197,18 @@ class DeploySignals(QObject):
 # 主窗口
 # ============================================================
 class MainWindow(QMainWindow):
-    """CARIZON-模块部署工具 v2.0"""
+    """CARIZON-模块部署工具 v2.0 — 网易云音乐风格"""
 
     STATUS_COLORS = {
-        DeployStatus.IDLE: "#666666",
-        DeployStatus.CHECKING: "#2196F3",
-        DeployStatus.TRANSFERRING: "#FF9800",
+        DeployStatus.IDLE: NeteaseColors.TEXT_SECONDARY,
+        DeployStatus.CHECKING: NeteaseColors.INFO,
+        DeployStatus.TRANSFERRING: NeteaseColors.WARNING,
         DeployStatus.BOARD_OPERATING: "#9C27B0",
         DeployStatus.WAITING_REBOOT: "#FF5722",
-        DeployStatus.SUCCESS: "#4CAF50",
-        DeployStatus.FAILED: "#F44336",
+        DeployStatus.SUCCESS: NeteaseColors.SUCCESS,
+        DeployStatus.FAILED: NeteaseColors.ERROR,
         DeployStatus.ROLLING_BACK: "#FF5722",
-        DeployStatus.CANCELLED: "#9E9E9E",
+        DeployStatus.CANCELLED: NeteaseColors.TEXT_MUTED,
     }
 
     def __init__(self):
@@ -179,265 +232,376 @@ class MainWindow(QMainWindow):
         self.resize(1200, 800)
         self.setMinimumSize(960, 600)
 
-        # 全局样式
-        self.setStyleSheet("""
-            QMainWindow { background-color: #eef1f5; }
-            QGroupBox {
+        # ====== 全局样式（网易云暗色主题） ======
+        self.setStyleSheet(f"""
+            QMainWindow {{ background-color: {NeteaseColors.BG_DARK}; }}
+            QWidget {{ background-color: transparent; }}
+            QGroupBox {{
                 font-weight: bold; font-size: 13px;
-                border: 1px solid #e4e4e4; border-radius: 6px;
-                margin-top: 12px; padding-top: 14px;
-                background-color: white;
-            }
-            QGroupBox::title {
-                subcontrol-origin: margin; left: 12px;
-                padding: 0 6px; color: #444;
-            }
-            QPushButton {
-                padding: 5px 12px; border-radius: 5px;
-                border: 1px solid #d0d0d0;
-                background-color: #ffffff; min-height: 22px; font-size: 12px;
-            }
-            QPushButton:hover { background-color: #f0f0f0; border-color: #bbb; }
-            QPushButton:pressed { background-color: #e4e4e4; }
-            QPushButton:disabled { background-color: #f5f5f5; color: #bbb; border-color: #e0e0e0; }
-            QLineEdit {
-                padding: 4px 8px; border: 1px solid #d0d0d0;
-                border-radius: 5px; background-color: #fafafa; font-size: 12px;
-            }
-            QLineEdit:focus { border-color: #2196F3; background-color: white; }
-            QListWidget {
-                border: 1px solid #e4e4e4; border-radius: 6px;
-                background-color: white; font-size: 13px; padding: 2px;
-            }
-            QListWidget::item { padding: 5px 8px; border-radius: 4px; }
-            QListWidget::item:selected { background-color: #E3F2FD; color: #1565C0; }
-            QListWidget::item:hover { background-color: #f5f5f5; }
-            QProgressBar {
-                border: none; border-radius: 4px; text-align: center;
-                height: 18px; background-color: #e8e8e8;
-                font-size: 11px; font-weight: bold; color: #444;
-            }
-            QProgressBar::chunk {
-                background-color: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-                    stop:0 #2196F3, stop:1 #42A5F5);
-                border-radius: 4px;
-            }
-            QTextEdit {
-                border: 1px solid #e4e4e4; border-radius: 6px;
-                background-color: #1a1a2e; color: #e0e0e0;
-                font-family: 'Consolas', 'Courier New', monospace;
-                font-size: 12px; padding: 8px;
-            }
-            QTableWidget {
-                border: 1px solid #e4e4e4; border-radius: 6px;
-                background-color: white; gridline-color: #f0f0f0;
+                border: 1px solid {NeteaseColors.BORDER};
+                border-radius: 8px;
+                margin-top: 14px; padding-top: 16px;
+                background-color: {NeteaseColors.BG_CARD};
+                color: {NeteaseColors.TEXT_PRIMARY};
+            }}
+            QGroupBox::title {{
+                subcontrol-origin: margin; left: 14px;
+                padding: 0 8px; color: {NeteaseColors.TEXT_SECONDARY};
+            }}
+            QPushButton {{
+                padding: 5px 14px; border-radius: 6px;
+                border: 1px solid {NeteaseColors.BORDER};
+                background-color: {NeteaseColors.BG_CARD};
+                color: {NeteaseColors.TEXT_PRIMARY};
+                min-height: 24px; font-size: 12px;
+            }}
+            QPushButton:hover {{
+                background-color: {NeteaseColors.BG_CARD_HOVER};
+                border-color: {NeteaseColors.BORDER_LIGHT};
+            }}
+            QPushButton:pressed {{
+                background-color: {NeteaseColors.BORDER};
+            }}
+            QPushButton:disabled {{
+                background-color: {NeteaseColors.BG_CARD};
+                color: {NeteaseColors.TEXT_MUTED};
+                border-color: {NeteaseColors.BORDER};
+            }}
+            QLineEdit {{
+                padding: 5px 10px; border: 1px solid {NeteaseColors.BORDER};
+                border-radius: 6px;
+                background-color: {NeteaseColors.BG_INPUT};
+                color: {NeteaseColors.TEXT_PRIMARY};
                 font-size: 12px;
-            }
-            QTableWidget::item { padding: 3px 5px; }
-            QHeaderView::section {
-                background-color: #f5f5f5; border: none;
-                border-bottom: 1px solid #e0e0e0; padding: 4px 6px;
-                font-weight: bold; font-size: 11px; color: #555;
-            }
-            QScrollBar:vertical { width: 6px; background: transparent; }
-            QScrollBar::handle:vertical { background: #ccc; border-radius: 3px; min-height: 25px; }
-            QScrollBar::handle:vertical:hover { background: #aaa; }
-            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0px; }
-            QComboBox {
-                padding: 3px 6px; border: 1px solid #d0d0d0;
-                border-radius: 4px; background: white; font-size: 12px;
-            }
+            }}
+            QLineEdit:focus {{
+                border-color: {NeteaseColors.RED_PRIMARY};
+                background-color: {NeteaseColors.BG_CARD};
+            }}
+            QLineEdit::placeholder {{
+                color: {NeteaseColors.TEXT_MUTED};
+            }}
+            QListWidget {{
+                border: 1px solid {NeteaseColors.BORDER};
+                border-radius: 8px;
+                background-color: {NeteaseColors.BG_CARD};
+                color: {NeteaseColors.TEXT_PRIMARY};
+                font-size: 13px; padding: 4px;
+            }}
+            QListWidget::item {{
+                padding: 6px 10px; border-radius: 4px;
+                margin: 1px 2px;
+            }}
+            QListWidget::item:selected {{
+                background-color: rgba(194, 12, 12, 0.2);
+                color: {NeteaseColors.RED_LIGHT};
+            }}
+            QListWidget::item:hover {{
+                background-color: {NeteaseColors.BG_CARD_HOVER};
+            }}
+            QProgressBar {{
+                border: none; border-radius: 4px; text-align: center;
+                height: 20px;
+                background-color: {NeteaseColors.PROGRESS_BG};
+                font-size: 11px; font-weight: bold;
+                color: {NeteaseColors.TEXT_SECONDARY};
+            }}
+            QProgressBar::chunk {{
+                background-color: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                    stop:0 {NeteaseColors.RED_PRIMARY}, stop:1 {NeteaseColors.RED_LIGHT});
+                border-radius: 4px;
+            }}
+            QTextEdit {{
+                border: 1px solid {NeteaseColors.BORDER};
+                border-radius: 8px;
+                background-color: #0a0a14;
+                color: {NeteaseColors.TEXT_PRIMARY};
+                font-family: 'Consolas', 'Courier New', monospace;
+                font-size: 12px; padding: 10px;
+            }}
+            QTableWidget {{
+                border: 1px solid {NeteaseColors.BORDER};
+                border-radius: 8px;
+                background-color: {NeteaseColors.BG_CARD};
+                color: {NeteaseColors.TEXT_PRIMARY};
+                gridline-color: {NeteaseColors.BORDER};
+                font-size: 12px;
+            }}
+            QTableWidget::item {{
+                padding: 4px 6px;
+                border-bottom: 1px solid {NeteaseColors.BORDER};
+            }}
+            QTableWidget::item:selected {{
+                background-color: rgba(194, 12, 12, 0.15);
+            }}
+            QHeaderView::section {{
+                background-color: {NeteaseColors.BG_INPUT};
+                color: {NeteaseColors.TEXT_SECONDARY};
+                border: none;
+                border-bottom: 1px solid {NeteaseColors.BORDER};
+                padding: 5px 8px;
+                font-weight: bold; font-size: 11px;
+            }}
+            QScrollBar:vertical {{
+                width: 4px; background: transparent;
+                margin: 2px 0;
+            }}
+            QScrollBar::handle:vertical {{
+                background: {NeteaseColors.SCROLLBAR};
+                border-radius: 2px; min-height: 25px;
+            }}
+            QScrollBar::handle:vertical:hover {{
+                background: {NeteaseColors.SCROLLBAR_HOVER};
+            }}
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{
+                height: 0px;
+            }}
+            QScrollBar:horizontal {{
+                height: 4px; background: transparent;
+            }}
+            QScrollBar::handle:horizontal {{
+                background: {NeteaseColors.SCROLLBAR};
+                border-radius: 2px; min-width: 25px;
+            }}
+            QComboBox {{
+                padding: 4px 8px; border: 1px solid {NeteaseColors.BORDER};
+                border-radius: 6px;
+                background: {NeteaseColors.BG_CARD};
+                color: {NeteaseColors.TEXT_PRIMARY};
+                font-size: 12px;
+            }}
+            QComboBox:hover {{
+                border-color: {NeteaseColors.BORDER_LIGHT};
+            }}
+            QComboBox::drop-down {{
+                border: none; width: 20px;
+            }}
+            QComboBox QAbstractItemView {{
+                background-color: {NeteaseColors.BG_CARD};
+                color: {NeteaseColors.TEXT_PRIMARY};
+                border: 1px solid {NeteaseColors.BORDER};
+                selection-background-color: rgba(194, 12, 12, 0.2);
+                selection-color: {NeteaseColors.RED_LIGHT};
+            }}
+            QSplitter::handle {{
+                background-color: {NeteaseColors.BORDER};
+                border-radius: 2px;
+                margin: 8px 0;
+            }}
+            QSplitter::handle:hover {{
+                background-color: {NeteaseColors.RED_PRIMARY};
+            }}
+            QSplitter::handle:pressed {{
+                background-color: {NeteaseColors.RED_DIM};
+            }}
         """)
 
         central = QWidget()
         self.setCentralWidget(central)
         main_layout = QVBoxLayout(central)
-        main_layout.setSpacing(8)
-        main_layout.setContentsMargins(12, 8, 12, 8)
+        main_layout.setSpacing(10)
+        main_layout.setContentsMargins(16, 10, 16, 10)
 
-        # ====== 顶部导航栏（仅状态信息） ======
+        # ====== 顶部导航栏（网易云风格渐变） ======
         header = self._create_header()
         main_layout.addWidget(header)
 
-        # ====== 核心信息栏（一行紧凑） ======
+        # ====== 核心信息栏（四张状态卡片） ======
         info_row = self._create_info_row()
         main_layout.addLayout(info_row)
 
         # ====== 主内容区（QSplitter 可拖拽） ======
         splitter = QSplitter(Qt.Horizontal)
-        splitter.setHandleWidth(6)
+        splitter.setHandleWidth(4)
         splitter.setChildrenCollapsible(False)
-        splitter.setStyleSheet("""
-            QSplitter::handle {
-                background-color: #e0e0e0;
-                border-radius: 3px;
-                margin: 4px 0;
-            }
-            QSplitter::handle:hover {
-                background-color: #2196F3;
-            }
-            QSplitter::handle:pressed {
-                background-color: #1976D2;
-            }
+        splitter.setStyleSheet(f"""
+            QSplitter::handle {{
+                background-color: {NeteaseColors.BORDER};
+                border-radius: 2px;
+                margin: 8px 0;
+            }}
+            QSplitter::handle:hover {{
+                background-color: {NeteaseColors.RED_PRIMARY};
+            }}
         """)
         left = self._create_left_panel()
         right = self._create_right_panel()
-        left.setMinimumWidth(300)
+        left.setMinimumWidth(320)
         right.setMinimumWidth(400)
         splitter.addWidget(left)
         splitter.addWidget(right)
         splitter.setSizes([480, 720])
         main_layout.addWidget(splitter, 1)
 
-        # ====== 底部操作栏 ======
+        # ====== 底部操作栏（网易云播放条风格） ======
         bottom = self._create_bottom_bar()
         main_layout.addWidget(bottom)
 
-    # ==================== 顶部导航栏 ====================
+    # ==================== 顶部导航栏（网易云风格） ====================
 
     def _create_header(self):
         h = QFrame()
-        h.setStyleSheet("""
-            QFrame {
+        h.setStyleSheet(f"""
+            QFrame {{
                 background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-                    stop:0 #1a237e, stop:1 #283593);
-                border-radius: 8px;
-            }
+                    stop:0 {NeteaseColors.BG_CARD}, stop:0.5 {NeteaseColors.BG_CARD}, stop:1 {NeteaseColors.BG_CARD});
+                border: 1px solid {NeteaseColors.BORDER};
+                border-radius: 10px;
+            }}
         """)
-        h.setFixedHeight(44)
-        add_shadow(h, blur=8, offset=1, color=QColor(0, 0, 0, 35))
+        h.setFixedHeight(50)
+        add_shadow(h, blur=10, offset=2, color=QColor(194, 12, 12, 30))
 
         layout = QHBoxLayout(h)
-        layout.setContentsMargins(14, 0, 14, 0)
+        layout.setContentsMargins(18, 0, 18, 0)
 
-        # 左侧：名称 + 版本
-        title = QLabel("CARIZON-模块部署工具")
-        title.setStyleSheet("font-size: 14px; font-weight: bold; color: white; border: none;")
+        # 左侧：Logo 区域（红点 + 名称）
+        logo_dot = QLabel("●")
+        logo_dot.setStyleSheet(
+            f"color: {NeteaseColors.RED_PRIMARY}; font-size: 22px; "
+            f"border: none; background: transparent; margin-right: 2px;")
+        layout.addWidget(logo_dot)
+
+        title = QLabel("CARIZON 模块部署")
+        title.setStyleSheet(
+            f"font-size: 16px; font-weight: bold; color: {NeteaseColors.TEXT_PRIMARY}; "
+            f"border: none; background: transparent; letter-spacing: 1px;")
         layout.addWidget(title)
 
         ver = QLabel("v2.0")
-        ver.setStyleSheet("font-size: 9px; color: rgba(255,255,255,0.5); background: rgba(255,255,255,0.1); padding: 1px 5px; border-radius: 4px; border: none;")
+        ver.setStyleSheet(
+            f"font-size: 9px; color: {NeteaseColors.TEXT_MUTED}; "
+            f"background: rgba(194,12,12,0.15); padding: 1px 6px; "
+            f"border-radius: 4px; border: none; margin-top: 4px;")
         layout.addWidget(ver)
 
-        layout.addSpacing(20)
+        layout.addSpacing(24)
 
-        # 中间：就绪状态
+        # 分隔线
+        sep1 = QFrame()
+        sep1.setFrameShape(QFrame.VLine)
+        sep1.setStyleSheet(f"border: none; border-left: 1px solid {NeteaseColors.BORDER}; background: transparent;")
+        sep1.setFixedWidth(1)
+        layout.addWidget(sep1)
+        layout.addSpacing(16)
+
+        # 状态指示
         self._status_indicator = QLabel("● 就绪")
-        self._status_indicator.setStyleSheet("color: #81C784; font-weight: bold; font-size: 12px; border: none;")
+        self._status_indicator.setStyleSheet(
+            f"color: {NeteaseColors.SUCCESS}; font-weight: bold; font-size: 12px; "
+            f"border: none; background: transparent;")
         layout.addWidget(self._status_indicator)
 
         layout.addStretch()
 
         # 右侧：连接状态
         self._industrial_status = QLabel("● 工控机: 未连接")
-        self._industrial_status.setStyleSheet("color: rgba(255,255,255,0.7); font-size: 11px; border: none;")
+        self._industrial_status.setStyleSheet(
+            f"color: {NeteaseColors.TEXT_SECONDARY}; font-size: 11px; "
+            f"border: none; background: transparent;")
         layout.addWidget(self._industrial_status)
 
+        layout.addSpacing(16)
+
         self._board_status = QLabel("● 板端: 未连接")
-        self._board_status.setStyleSheet("color: rgba(255,255,255,0.7); font-size: 11px; border: none;")
+        self._board_status.setStyleSheet(
+            f"color: {NeteaseColors.TEXT_SECONDARY}; font-size: 11px; "
+            f"border: none; background: transparent;")
         layout.addWidget(self._board_status)
 
         return h
 
-    # ==================== 核心信息栏（均衡布局） ====================
+    # ==================== 核心信息栏 ====================
 
     def _create_info_row(self):
-        """一行布局：升级包 + 进度 + 状态 + 运行时间，宽度均衡"""
         row = QHBoxLayout()
-        row.setSpacing(8)
+        row.setSpacing(10)
         row.setContentsMargins(0, 0, 0, 0)
 
-        # 升级包 - 蓝色
-        self._card_packages = MiniStatusCard("升级包", "0 个", "#2196F3")
+        self._card_packages = MiniStatusCard("升级包", "0 个", NeteaseColors.RED_PRIMARY)
         row.addWidget(self._card_packages, 1)
 
-        # 部署进度 - 橙色
-        self._card_progress = MiniStatusCard("部署进度", "0%", "#FF9800")
+        self._card_progress = MiniStatusCard("部署进度", "0%", NeteaseColors.WARNING)
         row.addWidget(self._card_progress, 1)
 
-        # 当前状态 - 紫色，品牌色突出
-        self._card_status = MiniStatusCard("当前状态", "等待开始", "#7B1FA2")
-        self._card_status._value_lbl.setStyleSheet("font-size: 15px; color: #7B1FA2; font-weight: bold; border: none;")
+        self._card_status = MiniStatusCard("当前状态", "等待开始", "#9C27B0")
         row.addWidget(self._card_status, 1)
 
-        # 运行时间 - 蓝灰色，与前三者同宽
-        self._card_time_card = MiniStatusCard("运行时间", "--:--:--", "#546E7A")
+        self._card_time_card = MiniStatusCard("运行时间", "--:--:--", NeteaseColors.INFO)
         row.addWidget(self._card_time_card, 1)
 
         return row
 
-    # ==================== 左侧面板（40%） ====================
+    # ==================== 左侧面板 ====================
 
     def _create_left_panel(self):
         panel = QWidget()
         layout = QVBoxLayout(panel)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(8)
+        layout.setSpacing(10)
 
         # ---- 升级包选择 ----
         fg = QFrame()
-        fg.setStyleSheet("""
-            QFrame {
-                background-color: white;
-                border: 1px solid #e4e4e4;
-                border-radius: 6px;
-            }
+        fg.setStyleSheet(f"""
+            QFrame {{
+                {make_card_style(NeteaseColors.RED_PRIMARY)}
+            }}
         """)
+        add_shadow(fg, blur=10, offset=2, color=QColor(0, 0, 0, 50))
         fl = QVBoxLayout(fg)
-        fl.setSpacing(6)
-        fl.setContentsMargins(10, 10, 10, 8)
+        fl.setSpacing(8)
+        fl.setContentsMargins(14, 14, 14, 12)
 
-        title1 = QLabel("📁 升级包选择")
-        title1.setStyleSheet("font-size: 14px; color: #1565C0; font-weight: bold; border: none; padding-bottom: 4px;")
-        fl.addWidget(title1)
+        # 标题行
+        title_row = QHBoxLayout()
+        title1 = QLabel("升级包选择")
+        title1.setStyleSheet(
+            f"font-size: 15px; color: {NeteaseColors.TEXT_PRIMARY}; "
+            f"font-weight: bold; border: none; background: transparent; "
+            f"padding-bottom: 2px;")
+        title_row.addWidget(title1)
+
+        # 小红点装饰
+        dot = QLabel("●")
+        dot.setStyleSheet(f"color: {NeteaseColors.RED_PRIMARY}; font-size: 8px; border: none; background: transparent; margin-bottom: 4px;")
+        title_row.addWidget(dot)
+        title_row.addStretch()
+        fl.addLayout(title_row)
 
         btn_row = QHBoxLayout()
-        btn_row.setSpacing(6)
+        btn_row.setSpacing(8)
 
-        self._select_btn = QPushButton("📂 选择文件")
-        self._select_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #E3F2FD; color: #1565C0;
-                border: 1px solid #90CAF9; font-weight: bold;
-                padding: 7px 16px; font-size: 13px; border-radius: 5px;
-            }
-            QPushButton:hover { background-color: #BBDEFB; }
-        """)
+        self._select_btn = QPushButton("选择文件")
+        self._select_btn.setStyleSheet(make_btn_style(NeteaseColors.RED_PRIMARY, "#ffffff", NeteaseColors.RED_LIGHT))
         self._select_btn.clicked.connect(self._select_files)
         btn_row.addWidget(self._select_btn)
 
-        self._clear_btn = QPushButton("🗑 清空")
-        self._clear_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #FFF3E0; color: #E65100;
-                border: 1px solid #FFCC80; padding: 7px 16px;
-                font-size: 13px; border-radius: 5px;
-            }
-            QPushButton:hover { background-color: #FFE0B2; }
-        """)
+        self._clear_btn = QPushButton("清空")
+        self._clear_btn.setStyleSheet(make_btn_style(NeteaseColors.BG_INPUT, NeteaseColors.TEXT_SECONDARY, NeteaseColors.BG_CARD_HOVER))
         self._clear_btn.clicked.connect(self._clear_files)
         btn_row.addWidget(self._clear_btn)
 
         btn_row.addStretch()
-
         fl.addLayout(btn_row)
 
         self._file_list = DropFileList()
         self._file_list.setSelectionMode(QAbstractItemView.ExtendedSelection)
-        self._file_list.setMinimumHeight(90)
+        self._file_list.setMinimumHeight(100)
         self._file_list.setAlternatingRowColors(True)
-        self._file_list.setStyleSheet("""
-            QListWidget {
-                alternate-background-color: #fafafa;
-                font-size: 14px; padding: 3px;
-            }
-            QListWidget::item { padding: 6px 10px; border-radius: 4px; }
+        self._file_list.setStyleSheet(f"""
+            QListWidget {{
+                alternate-background-color: {NeteaseColors.BG_INPUT};
+                font-size: 14px; padding: 4px;
+            }}
+            QListWidget::item {{ padding: 6px 10px; border-radius: 4px; }}
         """)
         self._file_list.filesDropped.connect(self._on_files_dropped)
         fl.addWidget(self._file_list, 1)
 
         self._pkg_summary = QLabel("")
-        self._pkg_summary.setStyleSheet("color: #666; font-size: 13px; padding: 2px 4px;")
+        self._pkg_summary.setStyleSheet(
+            f"color: {NeteaseColors.TEXT_SECONDARY}; font-size: 12px; "
+            f"padding: 2px 4px; border: none; background: transparent;")
         self._pkg_summary.setWordWrap(True)
         fl.addWidget(self._pkg_summary)
 
@@ -445,31 +609,40 @@ class MainWindow(QMainWindow):
 
         # ---- 部署进度 ----
         pg = QFrame()
-        pg.setStyleSheet("""
-            QFrame {
-                background-color: white;
-                border: 1px solid #e4e4e4;
-                border-radius: 6px;
-            }
+        pg.setStyleSheet(f"""
+            QFrame {{
+                {make_card_style(NeteaseColors.WARNING)}
+            }}
         """)
+        add_shadow(pg, blur=10, offset=2, color=QColor(0, 0, 0, 50))
         pl = QVBoxLayout(pg)
-        pl.setSpacing(6)
-        pl.setContentsMargins(10, 10, 10, 8)
+        pl.setSpacing(8)
+        pl.setContentsMargins(14, 14, 14, 12)
 
-        title2 = QLabel("📊 部署进度")
-        title2.setStyleSheet("font-size: 14px; color: #E65100; font-weight: bold; border: none; padding-bottom: 4px;")
-        pl.addWidget(title2)
+        title_row2 = QHBoxLayout()
+        title2 = QLabel("部署进度")
+        title2.setStyleSheet(
+            f"font-size: 15px; color: {NeteaseColors.TEXT_PRIMARY}; "
+            f"font-weight: bold; border: none; background: transparent;")
+        title_row2.addWidget(title2)
+        dot2 = QLabel("●")
+        dot2.setStyleSheet(f"color: {NeteaseColors.WARNING}; font-size: 8px; border: none; background: transparent; margin-bottom: 4px;")
+        title_row2.addWidget(dot2)
+        title_row2.addStretch()
+        pl.addLayout(title_row2)
 
         pbar = QHBoxLayout()
         self._progress_bar = QProgressBar()
         self._progress_bar.setValue(0)
         self._progress_bar.setFormat("  %p%  -  当前包: %v/%m ")
-        self._progress_bar.setFixedHeight(22)
+        self._progress_bar.setFixedHeight(24)
         pbar.addWidget(self._progress_bar, 1)
 
         self._progress_pct = QLabel("0%")
-        self._progress_pct.setStyleSheet("font-size: 18px; font-weight: bold; color: #E65100;")
-        self._progress_pct.setFixedWidth(46)
+        self._progress_pct.setStyleSheet(
+            f"font-size: 20px; font-weight: bold; color: {NeteaseColors.WARNING}; "
+            f"border: none; background: transparent;")
+        self._progress_pct.setFixedWidth(50)
         self._progress_pct.setAlignment(Qt.AlignCenter)
         pbar.addWidget(self._progress_pct)
 
@@ -484,16 +657,16 @@ class MainWindow(QMainWindow):
         self._pkg_table.setColumnWidth(3, 80)
         self._pkg_table.verticalHeader().setVisible(False)
         self._pkg_table.setSelectionMode(QAbstractItemView.NoSelection)
-        self._pkg_table.setStyleSheet("""
-            QTableWidget { font-size: 13px; border-radius: 6px; }
-            QTableWidget::item { padding: 4px 6px; }
+        self._pkg_table.setStyleSheet(f"""
+            QTableWidget {{ font-size: 13px; border-radius: 8px; }}
+            QTableWidget::item {{ padding: 4px 8px; }}
         """)
         pl.addWidget(self._pkg_table)
 
         layout.addWidget(pg, 3)
         return panel
 
-    # ==================== 右侧面板（60%） ====================
+    # ==================== 右侧面板 ====================
 
     def _create_right_panel(self):
         panel = QWidget()
@@ -502,43 +675,53 @@ class MainWindow(QMainWindow):
         layout.setSpacing(0)
 
         lg = QFrame()
-        lg.setStyleSheet("""
-            QFrame {
-                background-color: white;
-                border: 1px solid #e4e4e4;
-                border-radius: 6px;
-            }
+        lg.setStyleSheet(f"""
+            QFrame {{
+                {make_card_style(NeteaseColors.INFO)}
+            }}
         """)
+        add_shadow(lg, blur=10, offset=2, color=QColor(0, 0, 0, 50))
         ll = QVBoxLayout(lg)
-        ll.setSpacing(6)
-        ll.setContentsMargins(10, 10, 10, 8)
+        ll.setSpacing(8)
+        ll.setContentsMargins(14, 14, 14, 12)
 
-        title3 = QLabel("📝 实时日志")
-        title3.setStyleSheet("font-size: 14px; color: #1a1a2e; font-weight: bold; border: none; padding-bottom: 4px;")
-        ll.addWidget(title3)
+        # 标题行
+        title_row3 = QHBoxLayout()
+        title3 = QLabel("实时日志")
+        title3.setStyleSheet(
+            f"font-size: 15px; color: {NeteaseColors.TEXT_PRIMARY}; "
+            f"font-weight: bold; border: none; background: transparent;")
+        title_row3.addWidget(title3)
+        dot3 = QLabel("●")
+        dot3.setStyleSheet(f"color: {NeteaseColors.INFO}; font-size: 8px; border: none; background: transparent; margin-bottom: 4px;")
+        title_row3.addWidget(dot3)
+        title_row3.addStretch()
+        ll.addLayout(title_row3)
 
         # 工具栏
         tb = QHBoxLayout()
-        tb.setSpacing(6)
+        tb.setSpacing(8)
 
         fl = QLabel("过滤:")
-        fl.setStyleSheet("font-size: 13px; color: #555;")
+        fl.setStyleSheet(f"font-size: 12px; color: {NeteaseColors.TEXT_SECONDARY}; border: none; background: transparent;")
         tb.addWidget(fl)
 
         self._log_filter_combo = QComboBox()
         self._log_filter_combo.addItems(["全部", "INFO", "WARN", "ERROR"])
-        self._log_filter_combo.setFixedWidth(75)
+        self._log_filter_combo.setFixedWidth(80)
         tb.addWidget(self._log_filter_combo)
 
         self._log_search_edit = QLineEdit()
-        self._log_search_edit.setPlaceholderText("🔍 搜索日志...")
-        self._log_search_edit.setStyleSheet("font-size: 13px; padding: 5px 8px;")
+        self._log_search_edit.setPlaceholderText("搜索日志...")
+        self._log_search_edit.setStyleSheet(
+            f"font-size: 12px; padding: 5px 10px; "
+            f"background-color: {NeteaseColors.BG_INPUT};")
         self._log_search_edit.returnPressed.connect(self._filter_logs)
         tb.addWidget(self._log_search_edit, 1)
 
         self._log_clear_btn = QPushButton("清空")
         self._log_clear_btn.setFixedWidth(55)
-        self._log_clear_btn.setStyleSheet("font-size: 12px; padding: 4px 10px;")
+        self._log_clear_btn.setStyleSheet(make_btn_style(NeteaseColors.BG_INPUT, NeteaseColors.TEXT_SECONDARY, NeteaseColors.BG_CARD_HOVER))
         self._log_clear_btn.clicked.connect(self._clear_logs)
         tb.addWidget(self._log_clear_btn)
 
@@ -546,98 +729,86 @@ class MainWindow(QMainWindow):
 
         self._log_output = QTextEdit()
         self._log_output.setReadOnly(True)
-        self._log_output.setStyleSheet("""
-            QTextEdit {
-                border: 1px solid #e4e4e4; border-radius: 6px;
-                background-color: #1a1a2e; color: #e0e0e0;
+        self._log_output.setStyleSheet(f"""
+            QTextEdit {{
+                border: 1px solid {NeteaseColors.BORDER};
+                border-radius: 8px;
+                background-color: #0a0a14;
+                color: {NeteaseColors.TEXT_PRIMARY};
                 font-family: 'Consolas', 'Courier New', monospace;
-                font-size: 13px; padding: 10px;
-            }
+                font-size: 13px; padding: 12px;
+            }}
         """)
         ll.addWidget(self._log_output, 1)
 
         layout.addWidget(lg, 1)
         return panel
 
-    # ==================== 底部操作栏 ====================
+    # ==================== 底部操作栏（网易云播放条风格） ====================
 
     def _create_bottom_bar(self):
         bar = QFrame()
-        bar.setStyleSheet("""
-            QFrame {
-                background-color: white;
-                border: 1px solid #e4e4e4;
-                border-radius: 8px;
-            }
+        bar.setStyleSheet(f"""
+            QFrame {{
+                background-color: {NeteaseColors.BG_CARD};
+                border: 1px solid {NeteaseColors.BORDER};
+                border-radius: 10px;
+                border-top: 2px solid {NeteaseColors.RED_PRIMARY};
+            }}
         """)
-        bar.setFixedHeight(48)
-        add_shadow(bar, blur=6, offset=1, color=QColor(0, 0, 0, 15))
+        bar.setFixedHeight(54)
+        add_shadow(bar, blur=12, offset=2, color=QColor(194, 12, 12, 25))
 
         layout = QHBoxLayout(bar)
-        layout.setContentsMargins(12, 4, 12, 4)
-        layout.setSpacing(8)
+        layout.setContentsMargins(16, 4, 16, 4)
+        layout.setSpacing(10)
 
         # 左侧：版本信息
-        ver_label = QLabel("CARIZON-模块部署工具  v2.0")
-        ver_label.setStyleSheet("font-size: 11px; color: #999; border: none;")
+        ver_label = QLabel("CARIZON  ·  v2.0")
+        ver_label.setStyleSheet(
+            f"font-size: 11px; color: {NeteaseColors.TEXT_MUTED}; "
+            f"border: none; background: transparent;")
         layout.addWidget(ver_label)
+
+        # 中间装饰点
+        dot_mid = QLabel("·")
+        dot_mid.setStyleSheet(f"color: {NeteaseColors.TEXT_MUTED}; font-size: 14px; border: none; background: transparent;")
+        layout.addWidget(dot_mid)
+
+        status_small = QLabel("就绪")
+        status_small.setStyleSheet(
+            f"font-size: 11px; color: {NeteaseColors.TEXT_SECONDARY}; "
+            f"border: none; background: transparent;")
+        layout.addWidget(status_small)
 
         layout.addStretch()
 
-        # 功能按钮组（浅灰色）
-        self._settings_btn = QPushButton("⚙ 配置")
-        self._settings_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #f5f5f5; color: #555;
-                border: 1px solid #ddd; font-size: 12px;
-                padding: 5px 14px; border-radius: 5px;
-            }
-            QPushButton:hover { background-color: #eee; }
-        """)
+        # 功能按钮组
+        self._settings_btn = QPushButton("设置")
+        self._settings_btn.setStyleSheet(make_btn_style(NeteaseColors.BG_INPUT, NeteaseColors.TEXT_SECONDARY, NeteaseColors.BG_CARD_HOVER))
         self._settings_btn.clicked.connect(self._open_settings)
         layout.addWidget(self._settings_btn)
 
-        self._log_btn = QPushButton("📋 日志查看器")
-        self._log_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #f5f5f5; color: #555;
-                border: 1px solid #ddd; font-size: 12px;
-                padding: 5px 14px; border-radius: 5px;
-            }
-            QPushButton:hover { background-color: #eee; }
-        """)
+        self._log_btn = QPushButton("日志")
+        self._log_btn.setStyleSheet(make_btn_style(NeteaseColors.BG_INPUT, NeteaseColors.TEXT_SECONDARY, NeteaseColors.BG_CARD_HOVER))
         self._log_btn.clicked.connect(self._open_log_viewer)
         layout.addWidget(self._log_btn)
 
-        # 分隔
+        # 分隔线
         sep = QFrame()
         sep.setFrameShape(QFrame.VLine)
-        sep.setStyleSheet("border: none; border-left: 1px solid #e0e0e0;")
+        sep.setStyleSheet(f"border: none; border-left: 1px solid {NeteaseColors.BORDER}; background: transparent;")
         sep.setFixedWidth(1)
         layout.addWidget(sep)
 
-        # 操作按钮组（绿色/红色）
-        self._deploy_btn = QPushButton("▶ 部署")
-        self._deploy_btn.setStyleSheet("""
-            QPushButton {
-                background: #4CAF50; color: white; border: none;
-                font-weight: bold; font-size: 13px; padding: 6px 24px; border-radius: 5px;
-            }
-            QPushButton:hover { background: #43A047; }
-            QPushButton:disabled { background: #A5D6A7; color: rgba(255,255,255,0.6); }
-        """)
+        # 操作按钮组（网易云播放按钮风格）
+        self._deploy_btn = QPushButton("▶  部署")
+        self._deploy_btn.setStyleSheet(make_btn_style(NeteaseColors.RED_PRIMARY, "#ffffff", NeteaseColors.RED_LIGHT))
         self._deploy_btn.clicked.connect(self._start_deploy)
         layout.addWidget(self._deploy_btn)
 
-        self._stop_btn = QPushButton("⏹ 停止")
-        self._stop_btn.setStyleSheet("""
-            QPushButton {
-                background: #F44336; color: white; border: none;
-                font-weight: bold; font-size: 13px; padding: 6px 20px; border-radius: 5px;
-            }
-            QPushButton:hover { background: #D32F2F; }
-            QPushButton:disabled { background: #EF9A9A; color: rgba(255,255,255,0.6); }
-        """)
+        self._stop_btn = QPushButton("■  停止")
+        self._stop_btn.setStyleSheet(make_btn_style("#555", NeteaseColors.TEXT_SECONDARY, "#666"))
         self._stop_btn.setEnabled(False)
         self._stop_btn.clicked.connect(self._stop_deploy)
         layout.addWidget(self._stop_btn)
@@ -689,11 +860,11 @@ class MainWindow(QMainWindow):
             item = QListWidgetItem()
             if pi.is_known:
                 item.setText(f"  {fn}")
-                item.setForeground(QColor("#1B5E20"))
+                item.setForeground(QColor(NeteaseColors.TEXT_PRIMARY))
                 item.setData(Qt.UserRole, pi.pkg_type)
             else:
                 item.setText(f"  {fn}  [⚠]")
-                item.setForeground(QColor("#B71C1C"))
+                item.setForeground(QColor(NeteaseColors.WARNING))
                 item.setData(Qt.UserRole, "unknown")
             self._file_list.addItem(item)
 
@@ -738,7 +909,7 @@ class MainWindow(QMainWindow):
             si = QTableWidgetItem("等待中")
             si.setFlags(Qt.ItemIsEnabled)
             si.setTextAlignment(Qt.AlignCenter)
-            si.setForeground(QColor("#999"))
+            si.setForeground(QColor(NeteaseColors.TEXT_MUTED))
             self._pkg_table.setItem(i, 2, si)
 
             tmi = QTableWidgetItem("--:--")
@@ -795,7 +966,7 @@ class MainWindow(QMainWindow):
 
         for i in range(self._pkg_table.rowCount()):
             self._pkg_table.item(i, 2).setText("等待中")
-            self._pkg_table.item(i, 2).setForeground(QColor("#999"))
+            self._pkg_table.item(i, 2).setForeground(QColor(NeteaseColors.TEXT_MUTED))
 
         self._deploy_start_time = datetime.now()
         self._deploy_timer.start(1000)
@@ -815,7 +986,7 @@ class MainWindow(QMainWindow):
     # ==================== 回调 ====================
 
     def _on_status_changed(self, status: DeployStatus, step: DeployStep, message: str):
-        color = self.STATUS_COLORS.get(status, "#666666")
+        color = self.STATUS_COLORS.get(status, NeteaseColors.TEXT_SECONDARY)
         names = {
             DeployStatus.IDLE: "就绪", DeployStatus.CHECKING: "检查中",
             DeployStatus.TRANSFERRING: "传输中", DeployStatus.BOARD_OPERATING: "板端操作中",
@@ -827,17 +998,18 @@ class MainWindow(QMainWindow):
 
         # 顶部状态
         self._status_indicator.setText(f"● {name}")
-        self._status_indicator.setStyleSheet(f"color: {color}; font-weight: bold; font-size: 12px; border: none;")
+        self._status_indicator.setStyleSheet(
+            f"color: {color}; font-weight: bold; font-size: 12px; border: none; background: transparent;")
 
         # 卡片状态
         sc = {
-            DeployStatus.SUCCESS: "#4CAF50", DeployStatus.FAILED: "#F44336",
-            DeployStatus.CHECKING: "#2196F3", DeployStatus.TRANSFERRING: "#FF9800",
+            DeployStatus.SUCCESS: NeteaseColors.SUCCESS, DeployStatus.FAILED: NeteaseColors.ERROR,
+            DeployStatus.CHECKING: NeteaseColors.INFO, DeployStatus.TRANSFERRING: NeteaseColors.WARNING,
             DeployStatus.BOARD_OPERATING: "#9C27B0", DeployStatus.WAITING_REBOOT: "#FF5722",
-            DeployStatus.ROLLING_BACK: "#FF5722", DeployStatus.CANCELLED: "#9E9E9E",
+            DeployStatus.ROLLING_BACK: "#FF5722", DeployStatus.CANCELLED: NeteaseColors.TEXT_MUTED,
         }
         self._card_status.set_value(name)
-        self._card_status.set_color(sc.get(status, "#666666"))
+        self._card_status.set_color(sc.get(status, NeteaseColors.TEXT_SECONDARY))
 
         if message:
             level = "ERROR" if status in (DeployStatus.FAILED, DeployStatus.ROLLING_BACK) else "INFO"
@@ -851,18 +1023,18 @@ class MainWindow(QMainWindow):
             self._clear_btn.setEnabled(True)
 
             if status == DeployStatus.SUCCESS:
-                self._flash_animation("#4CAF50")
-                QMessageBox.information(self, "🎉 部署完成", "所有包部署成功！")
+                self._flash_animation(NeteaseColors.SUCCESS)
+                QMessageBox.information(self, "部署完成", "所有包部署成功！")
             elif status == DeployStatus.FAILED:
-                self._flash_animation("#F44336")
-                QMessageBox.critical(self, "❌ 部署失败", f"部署失败:\n{message}")
+                self._flash_animation(NeteaseColors.ERROR)
+                QMessageBox.critical(self, "部署失败", f"部署失败:\n{message}")
 
     def _flash_animation(self, color: str):
         for i in range(3):
             QTimer.singleShot(i * 300, lambda c=color: self._status_indicator.setStyleSheet(
-                f"color: {c}; font-weight: bold; font-size: 15px; border: none;"))
+                f"color: {c}; font-weight: bold; font-size: 15px; border: none; background: transparent;"))
             QTimer.singleShot(i * 300 + 150, lambda c=color: self._status_indicator.setStyleSheet(
-                f"color: {c}; font-weight: bold; font-size: 12px; border: none;"))
+                f"color: {c}; font-weight: bold; font-size: 12px; border: none; background: transparent;"))
 
     def _on_progress(self, percent: int, message: str):
         self._progress_bar.setValue(percent)
@@ -882,9 +1054,10 @@ class MainWindow(QMainWindow):
         if st and st.lower() not in message.lower():
             return
 
-        cm = {"INFO": "#81C784", "WARN": "#FFB74D", "WARNING": "#FFB74D",
-              "ERROR": "#E57373", "DEBUG": "#90A4AE"}
-        color = cm.get(level.upper(), "#e0e0e0")
+        cm = {"INFO": NeteaseColors.SUCCESS, "WARN": NeteaseColors.WARNING,
+              "WARNING": NeteaseColors.WARNING, "ERROR": NeteaseColors.ERROR,
+              "DEBUG": NeteaseColors.TEXT_MUTED}
+        color = cm.get(level.upper(), NeteaseColors.TEXT_PRIMARY)
         ts = datetime.now().strftime("%H:%M:%S")
         html = f'<span style="color:{color}">[{ts}] [{level}] {message}</span><br>'
         self._log_output.insertHtml(html)
@@ -918,10 +1091,12 @@ class MainWindow(QMainWindow):
 
         if config.get("板端_IP"):
             self._board_status.setText(f"● 板端: {config.get('板端_IP')}")
-            self._board_status.setStyleSheet("color: #81C784; font-size: 11px; border: none;")
+            self._board_status.setStyleSheet(
+                f"color: {NeteaseColors.SUCCESS}; font-size: 11px; border: none; background: transparent;")
         if config.get("工控机_IP"):
             self._industrial_status.setText(f"● 工控机: {config.get('工控机_IP')}")
-            self._industrial_status.setStyleSheet("color: #81C784; font-size: 11px; border: none;")
+            self._industrial_status.setStyleSheet(
+                f"color: {NeteaseColors.SUCCESS}; font-size: 11px; border: none; background: transparent;")
 
     # ==================== 菜单 ====================
 

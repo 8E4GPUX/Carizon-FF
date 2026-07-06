@@ -72,17 +72,17 @@ class MonitorWindow(QMainWindow):
         self.setMinimumSize(500, 350)
 
         self.setStyleSheet("""
-            QMainWindow { background-color: #1a1a2e; }
+            QMainWindow { background-color: #f5f5f5; }
             QLabel {
-                color: #e0e0e0;
+                color: #333333;
                 font-size: 13px;
             }
             QTextEdit {
-                background-color: #16213e;
-                color: #e0e0e0;
+                background-color: #ffffff;
+                color: #333333;
                 font-family: 'Consolas', 'Courier New', monospace;
                 font-size: 13px;
-                border: 1px solid #0f3460;
+                border: 1px solid #e0e0e0;
                 border-radius: 6px;
                 padding: 8px;
             }
@@ -105,9 +105,9 @@ class MonitorWindow(QMainWindow):
         header.setStyleSheet("""
             QFrame {
                 background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-                    stop:0 #0f3460, stop:1 #1a1a2e);
+                    stop:0 #C20C0C, stop:1 #f5f5f5);
                 border-radius: 8px;
-                border: 1px solid #0f3460;
+                border: 1px solid #e0e0e0;
             }
         """)
         header.setFixedHeight(50)
@@ -115,7 +115,7 @@ class MonitorWindow(QMainWindow):
         h_layout.setContentsMargins(14, 0, 14, 0)
 
         title = QLabel("📡 产品需求监控器")
-        title.setStyleSheet("font-size: 15px; font-weight: bold; color: #e94560; border: none;")
+        title.setStyleSheet("font-size: 15px; font-weight: bold; color: #C20C0C; border: none;")
         h_layout.addWidget(title)
 
         h_layout.addStretch()
@@ -134,8 +134,8 @@ class MonitorWindow(QMainWindow):
         info_bar = QFrame()
         info_bar.setStyleSheet("""
             QFrame {
-                background-color: #16213e;
-                border: 1px solid #0f3460;
+                background-color: #ffffff;
+                border: 1px solid #e0e0e0;
                 border-radius: 6px;
             }
         """)
@@ -150,7 +150,7 @@ class MonitorWindow(QMainWindow):
         info_layout.addStretch()
 
         self._new_flag = QLabel("")
-        self._new_flag.setStyleSheet("color: #e94560; font-weight: bold; font-size: 12px; border: none;")
+        self._new_flag.setStyleSheet("color: #C20C0C; font-weight: bold; font-size: 12px; border: none;")
         info_layout.addWidget(self._new_flag)
 
         layout.addWidget(info_bar)
@@ -164,8 +164,8 @@ class MonitorWindow(QMainWindow):
         btn_bar = QFrame()
         btn_bar.setStyleSheet("""
             QFrame {
-                background-color: #16213e;
-                border: 1px solid #0f3460;
+                background-color: #ffffff;
+                border: 1px solid #e0e0e0;
                 border-radius: 6px;
             }
         """)
@@ -187,7 +187,7 @@ class MonitorWindow(QMainWindow):
         self._clear_btn = QPushButton("🗑 清空日志")
         self._clear_btn.setStyleSheet("""
             QPushButton {
-                background-color: #424242; color: #e0e0e0;
+                background-color: #e0e0e0; color: #333333;
                 border: 1px solid #616161; padding: 6px 14px;
             }
             QPushButton:hover { background-color: #616161; }
@@ -285,7 +285,7 @@ class MonitorWindow(QMainWindow):
             self._new_flag.setText("🚨 有新需求！")
             self._commit_count.setText(f"已检测提交: {len(self._last_known_commits)}")
             self._status_label.setText("● 有更新")
-            self._status_label.setStyleSheet("color: #e94560; font-weight: bold; font-size: 12px; border: none;")
+            self._status_label.setStyleSheet("color: #C20C0C; font-weight: bold; font-size: 12px; border: none;")
 
             # 弹出提示
             QMessageBox.information(
