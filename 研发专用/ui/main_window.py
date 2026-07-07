@@ -232,10 +232,9 @@ class MainWindow(QMainWindow):
         self.resize(1200, 800)
         self.setMinimumSize(960, 600)
 
-        # ====== 全局样式（网易云暗色主题） ======
+        # ====== 全局样式（浅色主题） ======
         self.setStyleSheet(f"""
             QMainWindow {{ background-color: {NeteaseColors.BG_DARK}; }}
-            QWidget {{ background-color: transparent; }}
             QGroupBox {{
                 font-weight: bold; font-size: 13px;
                 border: 1px solid {NeteaseColors.BORDER};
@@ -314,7 +313,7 @@ class MainWindow(QMainWindow):
             QTextEdit {{
                 border: 1px solid {NeteaseColors.BORDER};
                 border-radius: 8px;
-                background-color: #0a0a14;
+                background-color: {NeteaseColors.BG_CARD};
                 color: {NeteaseColors.TEXT_PRIMARY};
                 font-family: 'Consolas', 'Courier New', monospace;
                 font-size: 12px; padding: 10px;
@@ -733,7 +732,7 @@ class MainWindow(QMainWindow):
             QTextEdit {{
                 border: 1px solid {NeteaseColors.BORDER};
                 border-radius: 8px;
-                background-color: #0a0a14;
+                background-color: {NeteaseColors.BG_CARD};
                 color: {NeteaseColors.TEXT_PRIMARY};
                 font-family: 'Consolas', 'Courier New', monospace;
                 font-size: 13px; padding: 12px;
