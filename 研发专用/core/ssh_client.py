@@ -54,7 +54,7 @@ class SSHClient:
 
     def __init__(self, hostname: str, username: str, password: str = None,
                  port: int = 22, timeout: int = 8, retry: int = 3,
-                 key_file: str = None, sock=None):
+                 key_file: str = None, sock=None, sock_factory=None):
         self.hostname = hostname
         self.username = username
         self.password = password
@@ -63,14 +63,39 @@ class SSHClient:
         self.max_retry = retry
         self.key_file = key_file
         self._sock = sock  # 跳板机隧道 socket（通过工控机连接板端）
+        self._sock_factory = sock_factory  # 隧道重建工厂，sock 失效时调用
         self._client = None
         self._sftp = None
+
+    def _prepare_sock(self):
+        """确保 sock 有效：失效或缺失时通过工厂重建隧道
+
+        跳板机（工控机）连接断开后，direct-tcpip 隧道随之失效，
+        重连时必须重新创建隧道，否则无法恢复板端连接。
+        """
+        sock_ok = self._sock is not None and not getattr(self._sock, "closed", False)
+        if sock_ok:
+            return
+        if self._sock is None and self._sock_factory is None:
+            return
+        if self._sock_factory is not None:
+            logger.info("SSH 隧道失效，尝试重建...")
+            try:
+                new_sock = self._sock_factory()
+                if new_sock is not None:
+                    self._sock = new_sock
+                    logger.info("SSH 隧道已重建")
+            except Exception as e:
+                logger.error(f"SSH 隧道重建失败: {e}")
 
     def connect(self) -> bool:
         """建立 SSH 连接（带重试，支持密码和密钥认证）"""
         last_error = None
         for attempt in range(1, self.max_retry + 1):
             try:
+                # 每次尝试前确保隧道有效（板端场景可重建）
+                self._prepare_sock()
+
                 self._client = paramiko.SSHClient()
                 self._client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
 

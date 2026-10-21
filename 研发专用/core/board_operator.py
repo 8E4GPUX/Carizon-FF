@@ -266,8 +266,15 @@ class BoardOperator:
         output = "\n".join(output_lines)
 
         if exit_code == 255:
-            # 整包升级时 SSH 断开视为正常
-            logger.warning("ota_tool 执行期间 SSH 连接中断 (exit=255)，视为正常")
+            # 整包升级时 SSH 断开可能为正常（设备重启），需结合输出判断
+            combined = (output or "").lower()
+            fail_hints = ("error", "fail", "exception", "denied", "no such",
+                          "not found", "cannot", "unable", "killed")
+            has_error = any(hint in combined for hint in fail_hints)
+            if has_error:
+                logger.error(f"ota_tool 输出包含错误信息 (exit=255): {output[-500:]}")
+                return False, exit_code, output
+            logger.warning("ota_tool 执行期间 SSH 连接中断 (exit=255)，未检测到错误输出，视为正常")
             return True, exit_code, output
         elif exit_code == 0:
             logger.info("ota_tool 执行成功")

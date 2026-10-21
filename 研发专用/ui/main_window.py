@@ -9,7 +9,7 @@ from PyQt5.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
     QFileDialog, QListWidget, QAbstractItemView,
     QLineEdit, QLabel, QProgressBar, QMessageBox, QGroupBox,
-    QTextEdit, QFrame, QListWidgetItem,
+    QTextEdit, QFrame, QListWidgetItem, QInputDialog,
     QApplication, QTableWidget, QTableWidgetItem,
     QHeaderView, QComboBox, QGraphicsDropShadowEffect, QSizePolicy,
     QSplitter
@@ -23,6 +23,7 @@ from PyQt5.QtGui import (
 
 from core.deployment_engine import DeploymentEngine, DeployStatus, DeployStep
 from core.package_classifier import PackageClassifier
+from core.template_manager import TemplateManager, DeployTemplate
 from config.config_manager import ConfigManager, load_package_mapping, get_local_ip, resolve_target_ip
 from ui.log_viewer import LogViewer
 from ui.settings_dialog import SettingsDialog
@@ -215,9 +216,11 @@ class MainWindow(QMainWindow):
         super().__init__()
         self._config = ConfigManager()
         self._engine = DeploymentEngine()
+        self._tpl_mgr = TemplateManager()
         self._log_viewer = None
         self._selected_files = []
         self._pkg_infos = []
+        self._log_entries = []
         self._deploy_start_time = None
         self._deploy_timer = QTimer()
         self._deploy_timer.timeout.connect(self._update_timer)
@@ -580,6 +583,16 @@ class MainWindow(QMainWindow):
         self._clear_btn.clicked.connect(self._clear_files)
         btn_row.addWidget(self._clear_btn)
 
+        self._save_tpl_btn = QPushButton("保存模板")
+        self._save_tpl_btn.setStyleSheet(make_btn_style(NeteaseColors.BG_INPUT, NeteaseColors.TEXT_SECONDARY, NeteaseColors.BG_CARD_HOVER))
+        self._save_tpl_btn.clicked.connect(self._save_template)
+        btn_row.addWidget(self._save_tpl_btn)
+
+        self._load_tpl_btn = QPushButton("加载模板")
+        self._load_tpl_btn.setStyleSheet(make_btn_style(NeteaseColors.BG_INPUT, NeteaseColors.TEXT_SECONDARY, NeteaseColors.BG_CARD_HOVER))
+        self._load_tpl_btn.clicked.connect(self._load_template)
+        btn_row.addWidget(self._load_tpl_btn)
+
         btn_row.addStretch()
         fl.addLayout(btn_row)
 
@@ -708,6 +721,7 @@ class MainWindow(QMainWindow):
         self._log_filter_combo = QComboBox()
         self._log_filter_combo.addItems(["全部", "INFO", "WARN", "ERROR"])
         self._log_filter_combo.setFixedWidth(80)
+        self._log_filter_combo.currentIndexChanged.connect(self._filter_logs)
         tb.addWidget(self._log_filter_combo)
 
         self._log_search_edit = QLineEdit()
@@ -938,6 +952,76 @@ class MainWindow(QMainWindow):
         self._card_packages.set_value("0 个")
         self._update_deploy_button()
 
+    # ==================== 部署模板 ====================
+
+    def _save_template(self):
+        """保存当前文件列表 + 配置为模板"""
+        if not self._selected_files:
+            QMessageBox.warning(self, "提示", "请先选择升级包文件再保存模板")
+            return
+
+        name, ok = QInputDialog.getText(
+            self, "保存模板", "请输入模板名称：")
+        if not ok or not name.strip():
+            return
+        name = name.strip()
+
+        # 与已有模板重名时覆盖
+        if self._tpl_mgr.load(name) is not None:
+            ret = QMessageBox.question(
+                self, "模板已存在", f"模板 [{name}] 已存在，是否覆盖？",
+                QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+            if ret != QMessageBox.Yes:
+                return
+
+        # 记录包名（不含路径）
+        packages = [os.path.basename(p) for p in self._selected_files]
+        config_snapshot = self._config.get_all()
+        template = DeployTemplate(name, config_snapshot, packages)
+        if self._tpl_mgr.save(template):
+            QMessageBox.information(self, "成功", f"模板 [{name}] 已保存")
+        else:
+            QMessageBox.critical(self, "失败", "模板保存失败")
+
+    def _load_template(self):
+        """载入模板：填充文件列表与配置"""
+        templates = self._tpl_mgr.list_templates()
+        if not templates:
+            QMessageBox.information(self, "提示", "暂无可用模板，请先保存模板")
+            return
+
+        items = [f"{t.name}  ({len(t.packages)} 个包)" for t in templates]
+        choice, ok = QInputDialog.getItem(
+            self, "加载模板", "选择模板：", items, 0, False)
+        if not ok:
+            return
+        name = items[choice].split("  (")[0]
+        template = self._tpl_mgr.load(name)
+        if template is None:
+            QMessageBox.critical(self, "失败", f"模板 [{name}] 加载失败")
+            return
+
+        # 应用模板中的配置
+        if template.config:
+            self._config.update(template.config)
+
+        # 填充文件列表（模板中记录的是包名，需弹窗让用户选择实际文件路径）
+        if template.packages:
+            files, _ = QFileDialog.getOpenFileNames(
+                self, f"选择模板 [{name}] 对应的升级包（{len(template.packages)} 个）",
+                "", "压缩包 (*.zip);;所有文件 (*)")
+            self._add_files(files)
+            if len(files) != len(template.packages):
+                QMessageBox.warning(
+                    self, "提示",
+                    f"模板 [{name}] 包含 {len(template.packages)} 个包，"
+                    f"本次选择了 {len(files)} 个，请核对！")
+        else:
+            self._add_files([])
+
+        self._load_recent_config()
+        QMessageBox.information(self, "成功", f"已加载模板 [{name}]")
+
     # ==================== 部署控制 ====================
 
     def _start_deploy(self):
@@ -951,6 +1035,10 @@ class MainWindow(QMainWindow):
                 QMessageBox.Yes | QMessageBox.No)
             if ret == QMessageBox.Yes:
                 self._open_settings()
+            return
+
+        # 部署前清单确认
+        if not self._confirm_deploy_plan():
             return
 
         self._deploy_btn.setEnabled(False)
@@ -970,6 +1058,36 @@ class MainWindow(QMainWindow):
         self._deploy_start_time = datetime.now()
         self._deploy_timer.start(1000)
         self._engine.start_deploy(self._selected_files, [], False)
+
+    def _confirm_deploy_plan(self) -> bool:
+        """部署前展示清单并确认
+
+        Returns:
+            用户确认返回 True
+        """
+        industrial_ip = self._config.get("工控机_IP", "")
+        board_ip = self._config.get("板端_IP", "")
+
+        lines = [
+            f"🖥  工控机: {industrial_ip}",
+            f"📱  板端: {board_ip}",
+            f"📦  升级包 ({len(self._pkg_infos)} 个):",
+        ]
+        for info in self._pkg_infos:
+            target = info.target_dir if info.target_dir and info.target_dir != "unknown" else info.pkg_type.upper()
+            mark = "✅" if info.is_known else "❌"
+            lines.append(f"  {mark} {info.filename}  →  {target}")
+        unknown = [p for p in self._pkg_infos if not p.is_known]
+        if unknown:
+            lines.append("\n⚠️ 存在未识别类型的包，请确认包文件正确！")
+
+        reply = QMessageBox.question(
+            self, "确认部署",
+            "\n".join(lines) + "\n\n确定开始部署吗？",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No
+        )
+        return reply == QMessageBox.Yes
 
     def _stop_deploy(self):
         self._engine.cancel()
@@ -1026,7 +1144,7 @@ class MainWindow(QMainWindow):
                 QMessageBox.information(self, "部署完成", "所有包部署成功！")
             elif status == DeployStatus.FAILED:
                 self._flash_animation(NeteaseColors.ERROR)
-                QMessageBox.critical(self, "部署失败", f"部署失败:\n{message}")
+                self._show_failure_advice(message)
 
     def _flash_animation(self, color: str):
         for i in range(3):
@@ -1034,6 +1152,31 @@ class MainWindow(QMainWindow):
                 f"color: {c}; font-weight: bold; font-size: 15px; border: none; background: transparent;"))
             QTimer.singleShot(i * 300 + 150, lambda c=color: self._status_indicator.setStyleSheet(
                 f"color: {c}; font-weight: bold; font-size: 12px; border: none; background: transparent;"))
+
+    def _show_failure_advice(self, message: str):
+        """部署失败时按错误类型给出可操作建议"""
+        msg = message or "未知错误"
+        advice = ""
+
+        if "认证失败" in msg or "Authentication" in msg:
+            advice = ("认证失败：请检查设置中的用户名/密码/密钥文件是否正确，"
+                      "以及工控机→板端是否已配置免密登录。")
+        elif "不可达" in msg or "unreachable" in msg.lower():
+            advice = "主机不可达：请检查 IP 地址、网络连通性和网线/交换机状态。"
+        elif "超时" in msg or "timeout" in msg.lower():
+            advice = "连接超时：请确认目标设备在线，可尝试增大 SSH 超时时间。"
+        elif "空间不足" in msg or "No space" in msg:
+            advice = "空间不足：工具已尝试自动清理 /ota 目录，仍不足时请人工清理板端空间。"
+        elif "免密" in msg:
+            advice = "请在工控机上执行 ssh-copy-id 配置到板端 root 的免密登录后重试。"
+        elif "未识别" in msg or "无法识别" in msg:
+            advice = "存在未识别的包类型：请在 package_mapping.json 中补充关键字映射。"
+        elif "回滚" in msg:
+            advice = "部署已失败并尝试回滚，若回滚未完全成功请人工检查板端状态。"
+        else:
+            advice = "请查看日志面板定位具体失败环节，必要时检查板端 /ota 目录和系统日志。"
+
+        QMessageBox.critical(self, "部署失败", f"部署失败:\n{msg}\n\n💡 建议：{advice}")
 
     def _on_progress(self, percent: int, message: str):
         self._progress_bar.setValue(percent)
@@ -1046,27 +1189,46 @@ class MainWindow(QMainWindow):
     # ==================== 日志 ====================
 
     def _append_log(self, level: str, message: str):
-        ft = self._log_filter_combo.currentText()
-        if ft != "全部" and level.upper() != ft:
-            return
-        st = self._log_search_edit.text().strip()
-        if st and st.lower() not in message.lower():
+        ts = datetime.now().strftime("%H:%M:%S")
+        self._log_entries.append((level, message, ts))
+
+        # 实时显示时套用当前过滤条件
+        if not self._log_entry_matches(level, message):
             return
 
+        self._insert_log_html(level, message, ts)
+
+    def _log_entry_matches(self, level: str, message: str) -> bool:
+        """判断日志条目是否符合当前过滤/搜索条件"""
+        ft = self._log_filter_combo.currentText()
+        if ft != "全部" and level.upper() != ft:
+            return False
+        st = self._log_search_edit.text().strip()
+        if st and st.lower() not in message.lower():
+            return False
+        return True
+
+    def _insert_log_html(self, level: str, message: str, ts: str = None):
         cm = {"INFO": NeteaseColors.SUCCESS, "WARN": NeteaseColors.WARNING,
               "WARNING": NeteaseColors.WARNING, "ERROR": NeteaseColors.ERROR,
               "DEBUG": NeteaseColors.TEXT_MUTED}
         color = cm.get(level.upper(), NeteaseColors.TEXT_PRIMARY)
-        ts = datetime.now().strftime("%H:%M:%S")
+        if ts is None:
+            ts = datetime.now().strftime("%H:%M:%S")
         html = f'<span style="color:{color}">[{ts}] [{level}] {message}</span><br>'
         self._log_output.insertHtml(html)
         sb = self._log_output.verticalScrollBar()
         sb.setValue(sb.maximum())
 
     def _filter_logs(self):
-        pass
+        """按当前过滤条件重绘日志"""
+        self._log_output.clear()
+        for level, message, ts in self._log_entries:
+            if self._log_entry_matches(level, message):
+                self._insert_log_html(level, message, ts)
 
     def _clear_logs(self):
+        self._log_entries.clear()
         self._log_output.clear()
 
     # ==================== 辅助 ====================

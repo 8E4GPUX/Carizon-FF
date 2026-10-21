@@ -2,6 +2,7 @@
 传输管理器模块
 负责 Windows → 工控机 → 板端的双跳文件传输
 """
+import hashlib
 import os
 import time
 from core.ssh_client import SSHClient
@@ -45,6 +46,43 @@ class TransferManager:
         """确保工控机临时目录存在"""
         success, _, _ = self._win_client.exec_command(f"mkdir -p {self._temp_dir}")
         return success
+
+    def _local_md5(self, path: str) -> str:
+        """计算本地文件 MD5"""
+        h = hashlib.md5()
+        with open(path, "rb") as f:
+            for chunk in iter(lambda: f.read(65536), b""):
+                h.update(chunk)
+        return h.hexdigest()
+
+    def _verify_board_file(self, local_path: str, board_path: str) -> bool:
+        """校验板端文件与本地 MD5 是否一致
+
+        Args:
+            local_path: 本地文件路径
+            board_path: 板端文件路径
+
+        Returns:
+            是否一致
+        """
+        try:
+            local_md5 = self._local_md5(local_path)
+        except Exception as e:
+            logger.error(f"计算本地 MD5 失败: {e}")
+            return False
+
+        success, out, _ = self._board_client.exec_command(
+            f"md5sum {board_path}", timeout=30
+        )
+        if success and out and out.split():
+            remote_md5 = out.split()[0]
+            if local_md5 == remote_md5:
+                logger.info(f"MD5 校验通过: {local_md5}")
+                return True
+            logger.error(f"MD5 不匹配: 本地={local_md5}, 板端={remote_md5}")
+            return False
+        logger.error(f"无法获取板端 MD5: {out or '无输出'}")
+        return False
 
     def transfer(self, local_path: str, board_ota_dir: str,
                  filename: str = None) -> bool:
@@ -116,11 +154,26 @@ class TransferManager:
             logger.error(f"工控机 → 板端 SCP 失败，退出码: {exit_code}")
             return False
 
-        # Step 4: 验证板端文件存在
+        # Step 4: 验证板端文件 MD5（失败重传一次）
         time.sleep(1)
-        exists = self._board_client.check_remote_path_exists(board_path)
-        if not exists:
-            logger.error(f"板端文件不存在（传输可能失败）: {board_path}")
+        self._report_progress(90, 100, f"校验文件完整性: {filename}")
+        verified = self._verify_board_file(local_path, board_path)
+        if not verified:
+            logger.warning(f"MD5 校验失败，重传一次: {filename}")
+            self._win_client.exec_command(f"rm -f {board_path}")
+            exit_code = self._win_client.exec_command_async(
+                scp_command, timeout=300,
+                stdout_callback=stdout_callback,
+                check_error=True
+            )
+            if exit_code != 0:
+                logger.error(f"重传 SCP 失败，退出码: {exit_code}")
+                return False
+            time.sleep(1)
+            verified = self._verify_board_file(local_path, board_path)
+
+        if not verified:
+            logger.error(f"板端文件 MD5 校验未通过（已重传一次）: {filename}")
             return False
 
         # Step 5: 清理工控机临时文件

@@ -10,6 +10,7 @@ from core.package_classifier import PackageClassifier, PackageInfo
 from core.transfer_manager import TransferManager
 from core.board_operator import BoardOperator
 from core.rollback_manager import RollbackManager
+from core.deploy_history import DeployHistory
 from config.config_manager import ConfigManager, load_package_mapping
 from utils.logger import get_logger
 
@@ -58,6 +59,8 @@ class DeploymentEngine:
         self._config = ConfigManager()
         self._mapping_data = load_package_mapping()
         self._classifier = PackageClassifier(self._mapping_data)
+        self._history = DeployHistory()
+        self._current_record_id = None
 
         # 设置错误关键词
         error_kws = self._mapping_data.get("error_keywords", [])
@@ -149,8 +152,17 @@ class DeploymentEngine:
     # ========== 取消 ==========
 
     def cancel(self):
-        """取消当前部署"""
+        """取消当前部署（中断阻塞操作）"""
         self._cancel_flag = True
+
+        # 中断正在执行的阻塞操作：断开 SSH 连接使命令立即失败返回
+        for client in (self._industrial_client, self._board_client):
+            if client is not None:
+                try:
+                    client.disconnect()
+                except Exception:
+                    pass
+
         self._update_status(DeployStatus.CANCELLED, message="用户取消部署")
 
     # ========== 主部署流程 ==========
@@ -192,15 +204,25 @@ class DeploymentEngine:
         """执行部署流程"""
         self._update_status(DeployStatus.CHECKING, DeployStep.INIT, "开始部署流程")
 
+        # 创建部署历史记录
+        pkg_names = [os.path.basename(p) for p in file_paths]
+        try:
+            self._current_record_id = self._history.start_record(
+                packages=pkg_names,
+                device_ip=self._config.get("板端_IP", ""),
+            )
+        except Exception as e:
+            logger.warning(f"创建部署历史记录失败: {e}")
+            self._current_record_id = None
+
         # Step 1: 分类包
-        packages = self._classifier.classify_batch(
-            [os.path.basename(p) for p in file_paths]
-        )
+        packages = self._classifier.classify_batch(pkg_names)
         unknown = [p for p in packages if not p.is_known]
         if unknown:
             names = [p.filename for p in unknown]
             msg = f"以下包无法识别类型: {', '.join(names)}"
             self._update_status(DeployStatus.FAILED, message=msg)
+            self._finish_history(DeployStatus.FAILED.value, msg)
             return
 
         # Step 2: 连接工控机
@@ -209,6 +231,7 @@ class DeploymentEngine:
         self._industrial_client = self._create_industrial_client()
         if not self._industrial_client.connect():
             self._update_status(DeployStatus.FAILED, message="连接工控机失败")
+            self._finish_history(DeployStatus.FAILED.value, "连接工控机失败")
             return
 
         # Step 3: 连接板端（通过工控机 SSH 隧道跳转）
@@ -218,12 +241,26 @@ class DeploymentEngine:
         if board_sock is None:
             self._industrial_client.disconnect()
             self._update_status(DeployStatus.FAILED, message="创建板端 SSH 隧道失败")
+            self._finish_history(DeployStatus.FAILED.value, "创建板端 SSH 隧道失败")
             return
 
         self._board_client = self._create_board_client(sock=board_sock)
         if not self._board_client.connect():
             self._industrial_client.disconnect()
             self._update_status(DeployStatus.FAILED, message="连接板端失败")
+            self._finish_history(DeployStatus.FAILED.value, "连接板端失败")
+            return
+
+        # Step 3.5: 自检工控机 → 板端免密 SSH（传输链路依赖）
+        self._update_status(DeployStatus.CHECKING, DeployStep.CONNECT_BOARD,
+                            "自检工控机→板端免密链路...")
+        if not self._check_industrial_to_board_ssh():
+            self._industrial_client.disconnect()
+            self._board_client.disconnect()
+            msg = ("工控机→板端免密 SSH 未配置，文件传输将失败。"
+                   "请在工控机上配置到板端 root 的免密登录（ssh-copy-id）。")
+            self._update_status(DeployStatus.FAILED, message=msg)
+            self._finish_history(DeployStatus.FAILED.value, msg)
             return
 
         # 设置各管理器
@@ -256,6 +293,7 @@ class DeploymentEngine:
         total = len(packages)
         for idx, pkg_info in enumerate(packages):
             if self._cancel_flag:
+                self._finish_history(DeployStatus.CANCELLED.value, "用户取消部署")
                 return
 
             self._current_package = pkg_info
@@ -267,25 +305,32 @@ class DeploymentEngine:
                 message=f"处理包 ({idx + 1}/{total}): {pkg_info.filename}"
             )
 
-            # 5a: 传输文件
+            # 5a: 传输前空间检查（用本地文件大小，避免先传后查）
+            self._update_status(DeployStatus.CHECKING, DeployStep.CHECK_SPACE,
+                                f"检查板端空间: {pkg_info.filename}")
+            local_size_kb = (os.path.getsize(local_path) + 1023) // 1024
+            avail_kb = self._board_client.get_remote_disk_space_kb(ota_dir)
+            extra_kb = self._config.get("额外预留空间_KB", 102400)
+            total_need = local_size_kb + extra_kb
+            if avail_kb < total_need:
+                msg = (f"/ota 空间不足: 可用 {avail_kb}KB, "
+                       f"需要 {total_need}KB (包 {local_size_kb}KB + 预留 {extra_kb}KB)")
+                if self._confirm("空间不足", f"{msg}\n是否自动清理 /ota 目录后重试?"):
+                    self._board_op.clean_ota_dir()
+                    avail_kb = self._board_client.get_remote_disk_space_kb(ota_dir)
+                    if avail_kb < total_need:
+                        self._handle_failure(pkg_info, msg)
+                        return
+                else:
+                    self._handle_failure(pkg_info, msg)
+                    return
+
+            # 5b: 传输文件（含传输后 md5 校验）
             self._update_status(DeployStatus.TRANSFERRING, DeployStep.TRANSFER,
                                 f"传输: {pkg_info.filename}")
             if not self._transfer_mgr.transfer(local_path, ota_dir):
                 self._handle_failure(pkg_info, "文件传输失败")
                 return
-
-            # 5b: 空间检查
-            self._update_status(DeployStatus.CHECKING, DeployStep.CHECK_SPACE,
-                                "检查板端空间...")
-            space_ok, space_msg = self._board_op.check_disk_space(pkg_info.filename)
-            if not space_ok:
-                # 尝试自动清理
-                if self._confirm("空间不足", f"{space_msg}\n是否自动清理 /ota 目录后重试?"):
-                    self._board_op.clean_ota_dir()
-                    space_ok, space_msg = self._board_op.check_disk_space(pkg_info.filename)
-                if not space_ok:
-                    self._handle_failure(pkg_info, space_msg)
-                    return
 
             # 5c: 按类型执行板端操作
             self._update_status(DeployStatus.BOARD_OPERATING,
@@ -312,7 +357,17 @@ class DeploymentEngine:
         # 全部完成
         self._update_status(DeployStatus.SUCCESS, DeployStep.DONE,
                             "所有包部署完成")
+        self._finish_history(DeployStatus.SUCCESS.value, "")
         self._cleanup()
+
+    def _finish_history(self, status: str, message: str):
+        """结束部署历史记录"""
+        if self._current_record_id is not None:
+            try:
+                self._history.finish_record(self._current_record_id, status, message)
+            except Exception as e:
+                logger.warning(f"更新部署历史记录失败: {e}")
+            self._current_record_id = None
 
     def _execute_board_ops(self, pkg: PackageInfo, app_dir: str) -> bool:
         """根据包类型执行板端操作
@@ -423,8 +478,16 @@ class DeploymentEngine:
                             f"部署失败，执行回滚: {message}")
 
         if self._rollback_mgr.has_records:
-            self._rollback_mgr.rollback_all()
+            rollback_ok = self._rollback_mgr.rollback_all()
+            if rollback_ok:
+                logger.info("回滚完成，触发设备重启恢复...")
+                # 回滚后重启，确保旧版本生效
+                self._board_op.reboot()
+                self._board_op.wait_for_reboot()
+            else:
+                logger.error("回滚未完全成功，请人工检查板端状态")
 
+        self._finish_history(DeployStatus.FAILED.value, message)
         self._update_status(DeployStatus.FAILED, message=message)
         self._cleanup()
 
@@ -461,6 +524,7 @@ class DeploymentEngine:
             timeout=self._config.get("SSH_超时", 8),
             retry=self._config.get("SSH_重试次数", 3),
             sock=sock,
+            sock_factory=self._create_board_tunnel,
         )
 
     def _create_board_tunnel(self) -> object:
@@ -487,3 +551,34 @@ class DeploymentEngine:
         except Exception as e:
             logger.error(f"创建板端 SSH 隧道失败: {e}")
             return None
+
+    def _check_industrial_to_board_ssh(self) -> bool:
+        """自检工控机 → 板端免密 SSH 链路
+
+        传输管理器使用工控机上的 scp 命令向板端传文件，
+        该命令依赖工控机到板端 root 的免密登录配置。
+
+        Returns:
+            免密链路可用返回 True
+        """
+        board_ip = self._config.get("板端_IP", "")
+        board_user = self._config.get("板端_用户名", "root")
+        if not board_ip:
+            logger.warning("板端 IP 未配置，跳过免密自检")
+            return True
+
+        cmd = (
+            f"ssh -o BatchMode=yes -o ConnectTimeout=5 "
+            f"-o StrictHostKeyChecking=accept-new "
+            f"{board_user}@{board_ip} 'echo ssh_ok'"
+        )
+        try:
+            success, out, err = self._industrial_client.exec_command(cmd, timeout=15)
+            if success and "ssh_ok" in (out or ""):
+                logger.info(f"工控机→板端免密链路正常: {board_user}@{board_ip}")
+                return True
+            logger.warning(f"工控机→板端免密链路不可用: {err or out}")
+            return False
+        except Exception as e:
+            logger.warning(f"免密自检异常: {e}")
+            return False
