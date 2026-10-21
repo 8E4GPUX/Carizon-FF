@@ -86,6 +86,8 @@ class DeploymentEngine:
         self._progress_callback = None
         self._log_callback = None
         self._confirm_callback = None
+        self._conn_callback = None
+        self._pkg_callback = None
 
         # 工作线程
         self._worker_thread = None
@@ -107,6 +109,30 @@ class DeploymentEngine:
     def set_confirm_callback(self, callback):
         """确认回调 (title, message) -> bool"""
         self._confirm_callback = callback
+
+    def set_conn_status_callback(self, callback):
+        """连接状态回调 (role, connected)"""
+        self._conn_callback = callback
+
+    def set_package_callback(self, callback):
+        """包状态回调 (filename, status, message)"""
+        self._pkg_callback = callback
+
+    def _notify_conn(self, role: str, connected: bool):
+        """通知连接状态变化"""
+        if self._conn_callback:
+            try:
+                self._conn_callback(role, connected)
+            except Exception:
+                pass
+
+    def _notify_pkg(self, filename: str, status: str, message: str = ""):
+        """通知单个包的状态变化"""
+        if self._pkg_callback:
+            try:
+                self._pkg_callback(filename, status, message)
+            except Exception:
+                pass
 
     # ========== 状态更新 ==========
 
@@ -164,6 +190,81 @@ class DeploymentEngine:
                     pass
 
         self._update_status(DeployStatus.CANCELLED, message="用户取消部署")
+
+    # ========== 环境自检 ==========
+
+    def run_self_check(self, callback) -> bool:
+        """一键环境自检（异步执行）
+
+        Args:
+            callback: 结果回调 (items: list of {name, ok, detail})
+
+        Returns:
+            是否已启动自检
+        """
+        if self.is_running:
+            logger.warning("部署正在进行中，无法自检")
+            return False
+
+        def worker():
+            results = []
+            # 1. 工控机连接
+            self._industrial_client = self._create_industrial_client()
+            if self._industrial_client.connect():
+                results.append({"name": "工控机 SSH 连接", "ok": True,
+                                "detail": f"{self._config.get('工控机_用户名', 'user')}@{self._config.get('工控机_IP')}"})
+            else:
+                results.append({"name": "工控机 SSH 连接", "ok": False,
+                                "detail": "连接失败，检查 IP/用户名/密码"})
+                self._cleanup()
+                callback(results)
+                return
+
+            # 2. 板端隧道 + 连接
+            sock = self._create_board_tunnel()
+            if sock is None:
+                results.append({"name": "板端 SSH 隧道", "ok": False,
+                                "detail": "无法通过工控机建立到板端隧道"})
+                self._cleanup()
+                callback(results)
+                return
+            results.append({"name": "板端 SSH 隧道", "ok": True,
+                            "detail": f"工控机 → {self._config.get('板端_IP')}"})
+
+            self._board_client = self._create_board_client(sock=sock)
+            if self._board_client.connect():
+                results.append({"name": "板端 SSH 连接", "ok": True,
+                                "detail": f"root@{self._config.get('板端_IP')}"})
+            else:
+                results.append({"name": "板端 SSH 连接", "ok": False,
+                                "detail": "连接失败，检查板端用户名/密码"})
+                self._cleanup()
+                callback(results)
+                return
+
+            # 3. 工控机→板端免密链路
+            if self._check_industrial_to_board_ssh():
+                results.append({"name": "工控机→板端免密", "ok": True,
+                                "detail": "SCP 传输链路可用"})
+            else:
+                results.append({"name": "工控机→板端免密", "ok": False,
+                                "detail": "未配置免密，请在工控机执行 ssh-copy-id"})
+
+            # 4. 板端 /ota 空间
+            ota_dir = self._config.get("板端_OTA目录", "/ota")
+            avail_kb = self._board_client.get_remote_disk_space_kb(ota_dir)
+            if avail_kb > 0:
+                results.append({"name": f"板端 {ota_dir} 空间", "ok": True,
+                                "detail": f"可用 {avail_kb}KB"})
+            else:
+                results.append({"name": f"板端 {ota_dir} 空间", "ok": False,
+                                "detail": "无法获取空间信息"})
+
+            self._cleanup()
+            callback(results)
+
+        threading.Thread(target=worker, daemon=True).start()
+        return True
 
     # ========== 主部署流程 ==========
 
@@ -228,11 +329,13 @@ class DeploymentEngine:
         # Step 2: 连接工控机
         self._update_status(DeployStatus.CHECKING, DeployStep.CONNECT_INDUSTRIAL,
                             "连接工控机...")
+        self._notify_conn("工控机", False)
         self._industrial_client = self._create_industrial_client()
         if not self._industrial_client.connect():
             self._update_status(DeployStatus.FAILED, message="连接工控机失败")
             self._finish_history(DeployStatus.FAILED.value, "连接工控机失败")
             return
+        self._notify_conn("工控机", True)
 
         # Step 3: 连接板端（通过工控机 SSH 隧道跳转）
         self._update_status(DeployStatus.CHECKING, DeployStep.CONNECT_BOARD,
@@ -245,11 +348,13 @@ class DeploymentEngine:
             return
 
         self._board_client = self._create_board_client(sock=board_sock)
+        self._notify_conn("板端", False)
         if not self._board_client.connect():
             self._industrial_client.disconnect()
             self._update_status(DeployStatus.FAILED, message="连接板端失败")
             self._finish_history(DeployStatus.FAILED.value, "连接板端失败")
             return
+        self._notify_conn("板端", True)
 
         # Step 3.5: 自检工控机 → 板端免密 SSH（传输链路依赖）
         self._update_status(DeployStatus.CHECKING, DeployStep.CONNECT_BOARD,
@@ -328,16 +433,20 @@ class DeploymentEngine:
             # 5b: 传输文件（含传输后 md5 校验）
             self._update_status(DeployStatus.TRANSFERRING, DeployStep.TRANSFER,
                                 f"传输: {pkg_info.filename}")
+            self._notify_pkg(pkg_info.filename, "transferring", "传输中")
             if not self._transfer_mgr.transfer(local_path, ota_dir):
+                self._notify_pkg(pkg_info.filename, "failed", "传输失败")
                 self._handle_failure(pkg_info, "文件传输失败")
                 return
 
             # 5c: 按类型执行板端操作
             self._update_status(DeployStatus.BOARD_OPERATING,
                                 message=f"执行板端操作: {pkg_info.filename}")
+            self._notify_pkg(pkg_info.filename, "operating", "板端操作中")
             success = self._execute_board_ops(pkg_info, app_dir)
 
             if not success:
+                self._notify_pkg(pkg_info.filename, "failed", "操作失败")
                 self._handle_failure(pkg_info, f"板端操作失败: {pkg_info.filename}")
                 return
 
@@ -345,10 +454,13 @@ class DeploymentEngine:
             if self._pkg_requires_reboot(pkg_info.pkg_type):
                 self._update_status(DeployStatus.WAITING_REBOOT, DeployStep.WAIT_REBOOT,
                                     f"等待设备重启: {pkg_info.filename}")
+                self._notify_pkg(pkg_info.filename, "waiting_reboot", "等待重启")
                 if not self._board_op.wait_for_reboot():
+                    self._notify_pkg(pkg_info.filename, "failed", "重启超时")
                     self._handle_failure(pkg_info, "等待设备重启超时")
                     return
 
+            self._notify_pkg(pkg_info.filename, "success", "成功")
             self._update_progress(
                 int((idx + 1) * 100 / total),
                 f"包处理完成: {pkg_info.filename}"

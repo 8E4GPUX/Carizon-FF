@@ -1,6 +1,6 @@
 """
 主窗口模块
-CARIZON-模块部署工具 v2.0 — 网易云音乐风格 UI
+CARIZON-模块部署工具 v3.0 — 网易云音乐风格 UI
 """
 import os
 import sys
@@ -12,9 +12,9 @@ from PyQt5.QtWidgets import (
     QTextEdit, QFrame, QListWidgetItem, QInputDialog,
     QApplication, QTableWidget, QTableWidgetItem,
     QHeaderView, QComboBox, QGraphicsDropShadowEffect, QSizePolicy,
-    QSplitter
+    QSplitter, QMenu, QDialog
 )
-from PyQt5.QtCore import Qt, QTimer, QUrl, pyqtSignal, pyqtSlot, QObject, QThread, QMetaObject, Q_ARG
+from PyQt5.QtCore import Qt, QTimer, QUrl, pyqtSignal, pyqtSlot, QObject, QThread, QMetaObject, Q_ARG, QSettings
 from PyQt5.QtGui import (
     QFont, QColor, QIcon, QPalette, QLinearGradient, QBrush,
     QPainter, QPixmap, QTextCursor, QTextCharFormat,
@@ -27,9 +27,14 @@ from core.template_manager import TemplateManager, DeployTemplate
 from config.config_manager import ConfigManager, load_package_mapping, get_local_ip, resolve_target_ip
 from ui.log_viewer import LogViewer
 from ui.settings_dialog import SettingsDialog
+from ui.history_dialog import HistoryDialog
+from ui.template_dialog import TemplateDialog
 from utils.logger import get_logger
 
 logger = get_logger()
+
+# 版本号集中管理
+APP_VERSION = "v3.0"
 
 
 # ============================================================
@@ -165,16 +170,36 @@ class DropFileList(QListWidget):
         super().__init__(parent)
         self.setAcceptDrops(True)
         self.setDragEnabled(False)
+        self._drag_active = False
+        self.setStyleSheet("""
+            QListWidget { border: 2px dashed transparent; }
+        """)
+
+    def _set_drag_highlight(self, active: bool):
+        """拖拽时高亮边框"""
+        self._drag_active = active
+        if active:
+            self.setStyleSheet(
+                f"QListWidget {{ border: 2px dashed {NeteaseColors.RED_PRIMARY}; "
+                f"background-color: {NeteaseColors.BG_INPUT}; }}")
+        else:
+            self.setStyleSheet("QListWidget { border: 2px dashed transparent; }")
 
     def dragEnterEvent(self, event: QDragEnterEvent):
         if event.mimeData().hasUrls():
+            self._set_drag_highlight(True)
             event.acceptProposedAction()
 
     def dragMoveEvent(self, event):
         if event.mimeData().hasUrls():
             event.acceptProposedAction()
 
+    def dragLeaveEvent(self, event):
+        self._set_drag_highlight(False)
+        super().dragLeaveEvent(event)
+
     def dropEvent(self, event: QDropEvent):
+        self._set_drag_highlight(False)
         files = []
         for url in event.mimeData().urls():
             fp = url.toLocalFile()
@@ -218,9 +243,12 @@ class MainWindow(QMainWindow):
         self._engine = DeploymentEngine()
         self._tpl_mgr = TemplateManager()
         self._log_viewer = None
+        self._history_dialog = None
+        self._template_dialog = None
         self._selected_files = []
         self._pkg_infos = []
         self._log_entries = []
+        self._pkg_row_map = {}  # 包名 -> 表格行号
         self._deploy_start_time = None
         self._deploy_timer = QTimer()
         self._deploy_timer.timeout.connect(self._update_timer)
@@ -229,11 +257,12 @@ class MainWindow(QMainWindow):
         self._signals = DeploySignals()
         self._connect_signals()
         self._load_recent_config()
+        self._restore_window_state()
 
     def _init_ui(self):
-        self.setWindowTitle("CARIZON-模块部署工具 v2.0")
+        self.setWindowTitle(f"CARIZON-模块部署工具 {APP_VERSION}")
         self.resize(1200, 800)
-        self.setMinimumSize(960, 600)
+        self.setMinimumSize(880, 560)
 
         # ====== 全局样式（浅色主题） ======
         self.setStyleSheet(f"""
@@ -428,11 +457,12 @@ class MainWindow(QMainWindow):
         """)
         left = self._create_left_panel()
         right = self._create_right_panel()
-        left.setMinimumWidth(320)
-        right.setMinimumWidth(400)
+        left.setMinimumWidth(280)
+        right.setMinimumWidth(340)
         splitter.addWidget(left)
         splitter.addWidget(right)
         splitter.setSizes([480, 720])
+        self._splitter = splitter
         main_layout.addWidget(splitter, 1)
 
         # ====== 底部操作栏（网易云播放条风格） ======
@@ -470,7 +500,7 @@ class MainWindow(QMainWindow):
             f"border: none; background: transparent; letter-spacing: 1px;")
         layout.addWidget(title)
 
-        ver = QLabel("v2.0")
+        ver = QLabel(APP_VERSION)
         ver.setStyleSheet(
             f"font-size: 9px; color: {NeteaseColors.TEXT_MUTED}; "
             f"background: rgba(194,12,12,0.15); padding: 1px 6px; "
@@ -583,15 +613,15 @@ class MainWindow(QMainWindow):
         self._clear_btn.clicked.connect(self._clear_files)
         btn_row.addWidget(self._clear_btn)
 
-        self._save_tpl_btn = QPushButton("保存模板")
-        self._save_tpl_btn.setStyleSheet(make_btn_style(NeteaseColors.BG_INPUT, NeteaseColors.TEXT_SECONDARY, NeteaseColors.BG_CARD_HOVER))
-        self._save_tpl_btn.clicked.connect(self._save_template)
-        btn_row.addWidget(self._save_tpl_btn)
-
-        self._load_tpl_btn = QPushButton("加载模板")
-        self._load_tpl_btn.setStyleSheet(make_btn_style(NeteaseColors.BG_INPUT, NeteaseColors.TEXT_SECONDARY, NeteaseColors.BG_CARD_HOVER))
-        self._load_tpl_btn.clicked.connect(self._load_template)
-        btn_row.addWidget(self._load_tpl_btn)
+        # 模板功能合并为下拉菜单
+        self._tpl_btn = QPushButton("模板 ▾")
+        self._tpl_btn.setStyleSheet(make_btn_style(NeteaseColors.BG_INPUT, NeteaseColors.TEXT_SECONDARY, NeteaseColors.BG_CARD_HOVER))
+        self._tpl_menu = QMenu(self)
+        self._tpl_menu.addAction("保存当前为模板", self._save_template)
+        self._tpl_menu.addAction("加载模板", self._load_template)
+        self._tpl_menu.addAction("管理模板", self._open_template_dialog)
+        self._tpl_btn.setMenu(self._tpl_menu)
+        btn_row.addWidget(self._tpl_btn)
 
         btn_row.addStretch()
         fl.addLayout(btn_row)
@@ -642,6 +672,14 @@ class MainWindow(QMainWindow):
         title_row2.addWidget(dot2)
         title_row2.addStretch()
         pl.addLayout(title_row2)
+
+        # 当前步骤提示（部署中醒目显示）
+        self._current_step_label = QLabel("等待部署")
+        self._current_step_label.setStyleSheet(
+            f"font-size: 13px; color: {NeteaseColors.TEXT_SECONDARY}; "
+            f"border: none; background: transparent; padding-bottom: 2px;")
+        self._current_step_label.setWordWrap(True)
+        pl.addWidget(self._current_step_label)
 
         pbar = QHBoxLayout()
         self._progress_bar = QProgressBar()
@@ -777,7 +815,7 @@ class MainWindow(QMainWindow):
         layout.setSpacing(10)
 
         # 左侧：版本信息
-        ver_label = QLabel("CARIZON  ·  v2.0")
+        ver_label = QLabel(f"CARIZON  ·  {APP_VERSION}")
         ver_label.setStyleSheet(
             f"font-size: 11px; color: {NeteaseColors.TEXT_MUTED}; "
             f"border: none; background: transparent;")
@@ -788,15 +826,26 @@ class MainWindow(QMainWindow):
         dot_mid.setStyleSheet(f"color: {NeteaseColors.TEXT_MUTED}; font-size: 14px; border: none; background: transparent;")
         layout.addWidget(dot_mid)
 
-        status_small = QLabel("就绪")
-        status_small.setStyleSheet(
+        # 底部状态：显示当前步骤（与顶部/卡片联动）
+        self._step_small = QLabel("就绪")
+        self._step_small.setStyleSheet(
             f"font-size: 11px; color: {NeteaseColors.TEXT_SECONDARY}; "
             f"border: none; background: transparent;")
-        layout.addWidget(status_small)
+        layout.addWidget(self._step_small)
 
         layout.addStretch()
 
         # 功能按钮组
+        self._self_check_btn = QPushButton("环境自检")
+        self._self_check_btn.setStyleSheet(make_btn_style(NeteaseColors.BG_INPUT, NeteaseColors.TEXT_SECONDARY, NeteaseColors.BG_CARD_HOVER))
+        self._self_check_btn.clicked.connect(self._run_self_check)
+        layout.addWidget(self._self_check_btn)
+
+        self._history_btn = QPushButton("历史")
+        self._history_btn.setStyleSheet(make_btn_style(NeteaseColors.BG_INPUT, NeteaseColors.TEXT_SECONDARY, NeteaseColors.BG_CARD_HOVER))
+        self._history_btn.clicked.connect(self._open_history_dialog)
+        layout.addWidget(self._history_btn)
+
         self._settings_btn = QPushButton("设置")
         self._settings_btn.setStyleSheet(make_btn_style(NeteaseColors.BG_INPUT, NeteaseColors.TEXT_SECONDARY, NeteaseColors.BG_CARD_HOVER))
         self._settings_btn.clicked.connect(self._open_settings)
@@ -838,10 +887,15 @@ class MainWindow(QMainWindow):
         self._engine.set_log_callback(
             lambda l, m: self._signals.logReceived.emit(l, m))
         self._engine.set_confirm_callback(self._threadsafe_confirm)
+        self._engine.set_conn_status_callback(self._on_conn_status)
+        self._engine.set_package_callback(self._on_pkg_status)
 
         self._signals.statusChanged.connect(self._on_status_changed)
         self._signals.progressUpdated.connect(self._on_progress)
         self._signals.logReceived.connect(self._on_log)
+
+        # 日志搜索实时过滤
+        self._log_search_edit.textChanged.connect(self._filter_logs)
 
     def _threadsafe_confirm(self, title: str, message: str) -> bool:
         self._confirm_result = False
@@ -908,11 +962,13 @@ class MainWindow(QMainWindow):
         self._pkg_summary.setText("  |  ".join(parts))
 
     def _populate_pkg_table(self):
+        self._pkg_row_map.clear()
         self._pkg_table.setRowCount(len(self._selected_files))
         for i, (f, info) in enumerate(zip(self._selected_files, self._pkg_infos)):
             ni = QTableWidgetItem(os.path.basename(f))
             ni.setFlags(Qt.ItemIsEnabled)
             self._pkg_table.setItem(i, 0, ni)
+            self._pkg_row_map[info.filename] = i
 
             ti = QTableWidgetItem(info.target_dir if info.target_dir and info.target_dir != "unknown" else info.pkg_type.upper())
             ti.setFlags(Qt.ItemIsEnabled)
@@ -946,6 +1002,7 @@ class MainWindow(QMainWindow):
 
         self._selected_files = []
         self._pkg_infos = []
+        self._pkg_row_map.clear()
         self._file_list.clear()
         self._pkg_summary.setText("")
         self._pkg_table.setRowCount(0)
@@ -1128,6 +1185,27 @@ class MainWindow(QMainWindow):
         self._card_status.set_value(name)
         self._card_status.set_color(sc.get(status, NeteaseColors.TEXT_SECONDARY))
 
+        # 当前步骤提示（部署进度卡片 + 底部栏联动）
+        step_name = step.value if step else ""
+        if status == DeployStatus.IDLE:
+            self._current_step_label.setText("等待部署")
+            self._current_step_label.setStyleSheet(
+                f"font-size: 13px; color: {NeteaseColors.TEXT_SECONDARY}; "
+                f"border: none; background: transparent; padding-bottom: 2px;")
+            self._step_small.setText("就绪")
+        elif status in (DeployStatus.SUCCESS, DeployStatus.FAILED, DeployStatus.CANCELLED):
+            self._current_step_label.setText("—")
+            self._current_step_label.setStyleSheet(
+                f"font-size: 13px; color: {NeteaseColors.TEXT_SECONDARY}; "
+                f"border: none; background: transparent; padding-bottom: 2px;")
+            self._step_small.setText(name)
+        else:
+            self._current_step_label.setText(f"▸ {step_name}")
+            self._current_step_label.setStyleSheet(
+                f"font-size: 13px; color: {NeteaseColors.RED_PRIMARY}; font-weight: bold; "
+                f"border: none; background: transparent; padding-bottom: 2px;")
+            self._step_small.setText(step_name)
+
         if message:
             level = "ERROR" if status in (DeployStatus.FAILED, DeployStatus.ROLLING_BACK) else "INFO"
             self._append_log(level, message)
@@ -1139,9 +1217,20 @@ class MainWindow(QMainWindow):
             self._select_btn.setEnabled(True)
             self._clear_btn.setEnabled(True)
 
+            # 显示本次部署总耗时
+            if self._deploy_start_time:
+                dur = int((datetime.now() - self._deploy_start_time).total_seconds())
+                h, m, s = dur // 3600, (dur % 3600) // 60, dur % 60
+                self._card_time_card.set_value(f"{h:02d}:{m:02d}:{s:02d}")
+                self._step_small.setText(f"{name} · 总耗时 {h:02d}:{m:02d}:{s:02d}")
+
             if status == DeployStatus.SUCCESS:
                 self._flash_animation(NeteaseColors.SUCCESS)
-                QMessageBox.information(self, "部署完成", "所有包部署成功！")
+                ret = QMessageBox.question(
+                    self, "部署完成", "所有包部署成功！\n\n是否清空文件列表？",
+                    QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+                if ret == QMessageBox.Yes:
+                    self._clear_files()
             elif status == DeployStatus.FAILED:
                 self._flash_animation(NeteaseColors.ERROR)
                 self._show_failure_advice(message)
@@ -1185,6 +1274,116 @@ class MainWindow(QMainWindow):
 
     def _on_log(self, level: str, message: str):
         self._append_log(level, message)
+
+    # ==================== 连接状态 / 包状态 ====================
+
+    def _on_conn_status(self, role: str, connected: bool):
+        """连接状态实时更新（顶部导航栏）"""
+        label = self._industrial_status if role == "工控机" else self._board_status
+        ip = self._config.get("工控机_IP", "") if role == "工控机" else self._config.get("板端_IP", "")
+        if connected:
+            label.setText(f"● {role}: {ip} 已连接")
+            label.setStyleSheet(
+                f"color: {NeteaseColors.SUCCESS}; font-size: 11px; "
+                f"border: none; background: transparent;")
+        else:
+            label.setText(f"● {role}: 连接失败")
+            label.setStyleSheet(
+                f"color: {NeteaseColors.ERROR}; font-size: 11px; "
+                f"border: none; background: transparent;")
+
+    def _on_pkg_status(self, filename: str, status: str, message: str):
+        """包表格状态列实时更新"""
+        row = self._pkg_row_map.get(filename)
+        if row is None:
+            return
+        item = self._pkg_table.item(row, 2)
+        if item is None:
+            return
+
+        status_map = {
+            "transferring": ("传输中", NeteaseColors.WARNING),
+            "operating": ("板端操作中", "#9C27B0"),
+            "waiting_reboot": ("等待重启", "#FF5722"),
+            "success": ("成功", NeteaseColors.SUCCESS),
+            "failed": ("失败", NeteaseColors.ERROR),
+        }
+        text, color = status_map.get(status, (message or status, NeteaseColors.TEXT_MUTED))
+        item.setText(text)
+        item.setForeground(QColor(color))
+
+    # ==================== 环境自检 ====================
+
+    def _run_self_check(self):
+        """一键环境自检"""
+        if self._engine.is_running:
+            QMessageBox.warning(self, "提示", "部署正在进行中，无法自检")
+            return
+
+        self._append_log("INFO", "🔍 开始环境自检...")
+        self._self_check_btn.setEnabled(False)
+
+        def on_result(items):
+            lines = ["环境自检结果：", ""]
+            all_ok = True
+            for it in items:
+                mark = "✅" if it["ok"] else "❌"
+                if not it["ok"]:
+                    all_ok = False
+                lines.append(f"{mark} {it['name']}: {it['detail']}")
+            lines.append("")
+            lines.append("✅ 全部通过，可以部署！" if all_ok else "⚠️ 存在问题，请按提示处理后重试")
+
+            self._append_log("INFO" if all_ok else "ERROR",
+                             "环境自检: " + ("全部通过" if all_ok else "存在异常"))
+            self._self_check_btn.setEnabled(True)
+            QMessageBox.information(self, "环境自检",
+                                    "\n".join(lines))
+
+        if not self._engine.run_self_check(on_result):
+            self._self_check_btn.setEnabled(True)
+            QMessageBox.warning(self, "提示", "自检无法启动，请检查是否正在部署")
+
+    # ==================== 历史 / 模板对话框 ====================
+
+    def _open_history_dialog(self):
+        if self._history_dialog is None:
+            self._history_dialog = HistoryDialog(self)
+        self._history_dialog.refresh()
+        self._history_dialog.show()
+        self._history_dialog.raise_()
+        self._history_dialog.activateWindow()
+
+    def _open_template_dialog(self):
+        if self._template_dialog is None:
+            self._template_dialog = TemplateDialog(self)
+        self._template_dialog.refresh()
+        self._template_dialog.show()
+        self._template_dialog.raise_()
+        self._template_dialog.activateWindow()
+
+    # ==================== 窗口状态记忆 ====================
+
+    def _restore_window_state(self):
+        """恢复上次的窗口大小与分栏比例"""
+        settings = QSettings("CARIZON", "ota_deploy_tool")
+        geom = settings.value("geometry")
+        if geom is not None:
+            self.restoreGeometry(geom)
+        sizes = settings.value("splitter_sizes")
+        if sizes and hasattr(self, "_splitter"):
+            try:
+                self._splitter.setSizes([int(x) for x in sizes])
+            except Exception:
+                pass
+
+    def closeEvent(self, event):
+        """保存窗口状态"""
+        settings = QSettings("CARIZON", "ota_deploy_tool")
+        settings.setValue("geometry", self.saveGeometry())
+        if hasattr(self, "_splitter"):
+            settings.setValue("splitter_sizes", self._splitter.sizes())
+        super().closeEvent(event)
 
     # ==================== 日志 ====================
 
